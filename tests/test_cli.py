@@ -17,3 +17,11 @@ def test_transcribe_dry_run_does_not_require_audio_file(capsys):
     output = capsys.readouterr().out
     assert "demo.wav" in output
     assert "score" in output.lower()
+
+
+def test_ui_dry_run_prints_local_url(capsys):
+    exit_code = main(["ui", "--port", "8123", "--dry-run"])
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "http://127.0.0.1:8123" in output

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from music_stuff.audio import AudioPreprocessor
 from music_stuff.harmony import ChordAnalyzer, KeyAnalyzer, build_analysis
-from music_stuff.melody import BasicPitchMelodyTranscriber, MelodyTranscriber
+from music_stuff.melody import MelodyTranscriber, SimplePitchMelodyTranscriber
 from music_stuff.models import TranscriptionResult
 from music_stuff.rhythm import RhythmQuantizer
 from music_stuff.score import ScoreExporter
@@ -24,7 +24,7 @@ class PipelinePlan:
         "quantize rhythm",
         "estimate key",
         "infer core chords",
-        "export score artifacts: MIDI, MusicXML, and JSON",
+        "export Jianpu score and analysis JSON",
     )
 
 
@@ -33,7 +33,7 @@ class MusicTranscriptionPipeline:
     """Coordinate the future transcription backends."""
 
     audio_preprocessor: AudioPreprocessor = field(default_factory=AudioPreprocessor)
-    melody_transcriber: MelodyTranscriber = field(default_factory=BasicPitchMelodyTranscriber)
+    melody_transcriber: MelodyTranscriber = field(default_factory=SimplePitchMelodyTranscriber)
     rhythm_quantizer: RhythmQuantizer = field(default_factory=RhythmQuantizer)
     key_analyzer: KeyAnalyzer = field(default_factory=KeyAnalyzer)
     chord_analyzer: ChordAnalyzer = field(default_factory=ChordAnalyzer)
@@ -45,8 +45,9 @@ class MusicTranscriptionPipeline:
     def transcribe(self, input_path: Path, output_dir: Path) -> TranscriptionResult:
         """Run the full transcription flow.
 
-        This method intentionally documents the orchestration before the concrete
-        backends exist. Each called component currently raises NotImplementedError.
+        The first concrete backend is intentionally lightweight and targets clear
+        monophonic WAV recordings. Later versions can swap in model-based melody
+        extraction without changing this orchestration.
         """
         audio = self.audio_preprocessor.prepare(input_path)
         raw_melody = self.melody_transcriber.transcribe(audio)
@@ -57,11 +58,10 @@ class MusicTranscriptionPipeline:
         analysis = build_analysis(key=key, tempo_bpm=tempo_bpm, chords=chords)
 
         output_dir.mkdir(parents=True, exist_ok=True)
-        midi_path = self.score_exporter.export_midi(melody, output_dir / "melody.mid")
-        musicxml_path = self.score_exporter.export_musicxml(
+        jianpu_path = self.score_exporter.export_jianpu(
             melody,
             analysis,
-            output_dir / "score.musicxml",
+            output_dir / "melody.jianpu.txt",
         )
         analysis_path = self.score_exporter.export_analysis_json(
             analysis,
@@ -72,7 +72,6 @@ class MusicTranscriptionPipeline:
             melody=melody,
             analysis=analysis,
             output_dir=output_dir,
-            midi_path=midi_path,
-            musicxml_path=musicxml_path,
+            jianpu_path=jianpu_path,
             analysis_path=analysis_path,
         )

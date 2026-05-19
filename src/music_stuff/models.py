@@ -65,6 +65,7 @@ class TranscriptionResult:
     melody: Melody
     analysis: AnalysisResult
     output_dir: Path
+    jianpu_path: Path | None = None
     midi_path: Path | None = None
     musicxml_path: Path | None = None
     analysis_path: Path | None = None

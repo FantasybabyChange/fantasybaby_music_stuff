@@ -8,6 +8,7 @@ import sys
 
 from music_stuff import __version__
 from music_stuff.pipeline import MusicTranscriptionPipeline
+from music_stuff.web import UIConfig, run_ui
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -24,14 +25,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     transcribe_parser = subparsers.add_parser(
         "transcribe",
-        help="Transcribe audio into symbolic music artifacts.",
+        help="Transcribe WAV audio into melody and Jianpu artifacts.",
     )
     transcribe_parser.add_argument("input", type=Path, help="Path to an audio file.")
     transcribe_parser.add_argument(
         "--out",
         type=Path,
         default=Path("output"),
-        help="Directory for generated MIDI, MusicXML, and JSON files.",
+        help="Directory for generated Jianpu and JSON files.",
     )
     transcribe_parser.add_argument(
         "--dry-run",
@@ -39,6 +40,39 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print the pipeline stages without running audio analysis.",
     )
     transcribe_parser.set_defaults(func=_handle_transcribe)
+
+    ui_parser = subparsers.add_parser(
+        "ui",
+        help="Start the local web UI for uploading audio and viewing Jianpu.",
+    )
+    ui_parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host interface for the local web UI.",
+    )
+    ui_parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port for the local web UI.",
+    )
+    ui_parser.add_argument(
+        "--out",
+        type=Path,
+        default=Path("output/ui"),
+        help="Directory for uploaded audio and generated UI artifacts.",
+    )
+    ui_parser.add_argument(
+        "--open",
+        action="store_true",
+        help="Open the UI in the default browser after starting.",
+    )
+    ui_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the UI URL without starting the server.",
+    )
+    ui_parser.set_defaults(func=_handle_ui)
 
     return parser
 
@@ -61,12 +95,37 @@ def _handle_transcribe(args: argparse.Namespace) -> int:
         return 0
 
     try:
-        pipeline.transcribe(args.input, args.out)
+        result = pipeline.transcribe(args.input, args.out)
     except NotImplementedError as exc:
         print(f"Not implemented yet: {exc}", file=sys.stderr)
         return 2
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
 
     print(f"Artifacts written to {args.out}")
+    if result.jianpu_path:
+        print(f"Jianpu: {result.jianpu_path}")
+    return 0
+
+
+def _handle_ui(args: argparse.Namespace) -> int:
+    config = UIConfig(
+        host=args.host,
+        port=args.port,
+        output_dir=args.out,
+        open_browser=args.open,
+    )
+    url = f"http://{config.host}:{config.port}"
+    if args.dry_run:
+        print(f"UI: {url}")
+        print(f"Output: {config.output_dir}")
+        return 0
+
+    try:
+        run_ui(config)
+    except KeyboardInterrupt:
+        print("\nUI stopped.")
     return 0
 
 
