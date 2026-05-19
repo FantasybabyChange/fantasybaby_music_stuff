@@ -5,10 +5,14 @@ from __future__ import annotations
 from dataclasses import asdict
 from fractions import Fraction
 import json
+import logging
 import math
 from pathlib import Path
 
 from music_stuff.models import AnalysisResult, Melody, NoteEvent
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class ScoreExporter:
@@ -41,6 +45,7 @@ class ScoreExporter:
     ) -> Path:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(format_jianpu(melody, analysis), encoding="utf-8")
+        LOGGER.info("Wrote Jianpu score: %s", output_path)
         return output_path
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
 import sys
 
@@ -17,6 +18,17 @@ def build_parser() -> argparse.ArgumentParser:
         description="Generate melody, key, chord, and score artifacts from audio.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=("DEBUG", "INFO", "WARNING", "ERROR"),
+        help="Logging verbosity for CLI and UI workflows.",
+    )
+    parser.add_argument(
+        "--log-file",
+        type=Path,
+        help="Optional file path for writing workflow logs.",
+    )
 
     subparsers = parser.add_subparsers(dest="command")
 
@@ -132,12 +144,29 @@ def _handle_ui(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    _configure_logging(args.log_level, args.log_file)
 
     if not hasattr(args, "func"):
         parser.print_help()
         return 0
 
     return args.func(args)
+
+
+def _configure_logging(level_name: str, log_file: Path | None = None) -> None:
+    formatter = logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s")
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    if log_file:
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        handlers.append(logging.FileHandler(log_file, encoding="utf-8"))
+
+    logging.basicConfig(
+        level=getattr(logging, level_name),
+        handlers=handlers,
+        force=True,
+    )
+    for handler in handlers:
+        handler.setFormatter(formatter)
 
 
 if __name__ == "__main__":

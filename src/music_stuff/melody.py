@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 import math
 from typing import Protocol
 
 from music_stuff.audio import PreparedAudio
 from music_stuff.models import Melody, NoteEvent
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class MelodyTranscriber(Protocol):
@@ -43,13 +47,29 @@ class SimplePitchMelodyTranscriber:
     rms_threshold: float = 0.015
     correlation_threshold: float = 0.35
     min_note_duration: float = 0.08
+    correlation_stride: int = 4
 
     def transcribe(self, audio: PreparedAudio) -> Melody:
         if not audio.samples or not audio.sample_rate:
+            LOGGER.warning("No audio samples available for melody extraction: %s", audio.path)
             return Melody(notes=(), source=str(audio.path))
 
+        LOGGER.info(
+            "Extracting melody: samples=%s sample_rate=%s frame_size=%s hop_size=%s",
+            len(audio.samples),
+            audio.sample_rate,
+            self.frame_size,
+            self.hop_size,
+        )
         frames = self._frame_pitches(audio.samples, audio.sample_rate)
         notes = self._frames_to_notes(frames)
+        voiced_frames = sum(1 for _start, _end, pitch in frames if pitch is not None)
+        LOGGER.info(
+            "Melody extraction complete: frames=%s voiced_frames=%s notes=%s",
+            len(frames),
+            voiced_frames,
+            len(notes),
+        )
         return Melody(notes=tuple(notes), source=str(audio.path))
 
     def _frame_pitches(
@@ -81,10 +101,11 @@ class SimplePitchMelodyTranscriber:
         max_lag = min(len(centered) // 2, int(sample_rate / self.min_frequency))
         best_lag = 0
         best_score = 0.0
+        stride = max(1, self.correlation_stride)
         for lag in range(min_lag, max_lag + 1):
             score = 0.0
             energy = 0.0
-            for index in range(0, len(centered) - lag):
+            for index in range(0, len(centered) - lag, stride):
                 left = centered[index]
                 right = centered[index + lag]
                 score += left * right

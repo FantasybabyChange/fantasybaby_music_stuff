@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import html
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import logging
 import mimetypes
 from pathlib import Path
 import re
@@ -19,6 +20,7 @@ from music_stuff.pipeline import MusicTranscriptionPipeline
 
 SUPPORTED_UPLOAD_SUFFIXES = {".wav", ".mp3", ".flac"}
 DOWNLOADABLE_ARTIFACTS = {"melody.jianpu.txt", "analysis.json"}
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -41,6 +43,7 @@ def run_ui(config: UIConfig) -> None:
     handler = _build_handler(config.output_dir)
     server = ThreadingHTTPServer((config.host, config.port), handler)
     url = f"http://{config.host}:{server.server_port}"
+    LOGGER.info("Starting UI server: url=%s output_dir=%s", url, config.output_dir.resolve())
     print(f"Music Stuff UI running at {url}")
     print("Press Ctrl+C to stop.")
     if config.open_browser:
@@ -410,8 +413,12 @@ def _build_handler(output_dir: Path) -> type[BaseHTTPRequestHandler]:
     class MusicStuffHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
+            LOGGER.info("HTTP GET %s", parsed.path)
             if parsed.path in {"/", "/index.html"}:
                 self._send_html(render_page())
+                return
+            if parsed.path.startswith("/runs/"):
+                self._serve_run_page(parsed.path)
                 return
             if parsed.path.startswith("/artifacts/"):
                 self._serve_artifact(parsed.path)
@@ -420,6 +427,7 @@ def _build_handler(output_dir: Path) -> type[BaseHTTPRequestHandler]:
 
         def do_POST(self) -> None:
             parsed = urlparse(self.path)
+            LOGGER.info("HTTP POST %s", parsed.path)
             if parsed.path != "/transcribe":
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return
@@ -430,6 +438,13 @@ def _build_handler(output_dir: Path) -> type[BaseHTTPRequestHandler]:
                 run_dir.mkdir(parents=True, exist_ok=True)
                 input_path = run_dir / upload.safe_name
                 input_path.write_bytes(upload.content)
+                LOGGER.info(
+                    "Upload received: run_id=%s file=%s bytes=%s saved_as=%s",
+                    run_id,
+                    upload.original_name,
+                    len(upload.content),
+                    input_path,
+                )
 
                 result = MusicTranscriptionPipeline().transcribe(input_path, run_dir)
                 result_text = result.jianpu_path.read_text(encoding="utf-8") if result.jianpu_path else ""
@@ -442,7 +457,9 @@ def _build_handler(output_dir: Path) -> type[BaseHTTPRequestHandler]:
                         analysis_href=_artifact_href(run_id, "analysis.json"),
                     )
                 )
+                LOGGER.info("Upload transcription rendered: run_id=%s", run_id)
             except Exception as exc:
+                LOGGER.exception("Upload transcription failed")
                 self._send_html(render_page(message=str(exc)), status=HTTPStatus.BAD_REQUEST)
 
         def log_message(self, format: str, *args: object) -> None:
@@ -455,6 +472,36 @@ def _build_handler(output_dir: Path) -> type[BaseHTTPRequestHandler]:
             self.send_header("Content-Length", str(len(encoded)))
             self.end_headers()
             self.wfile.write(encoded)
+
+        def _serve_run_page(self, request_path: str) -> None:
+            parts = [unquote(part) for part in request_path.split("/") if part]
+            if len(parts) != 2 or parts[0] != "runs":
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+
+            run_id = parts[1]
+            if not re.fullmatch(r"[a-f0-9]{12}", run_id):
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+
+            run_dir = (output_root / run_id).resolve()
+            jianpu_path = run_dir / "melody.jianpu.txt"
+            analysis_path = run_dir / "analysis.json"
+            if not run_dir.is_relative_to(output_root) or not jianpu_path.exists():
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+
+            result_text = jianpu_path.read_text(encoding="utf-8")
+            LOGGER.info("Serving run page: run_id=%s", run_id)
+            self._send_html(
+                render_page(
+                    result_text=result_text,
+                    artifact_path=jianpu_path,
+                    file_name=run_id,
+                    jianpu_href=_artifact_href(run_id, "melody.jianpu.txt"),
+                    analysis_href=_artifact_href(run_id, "analysis.json") if analysis_path.exists() else None,
+                )
+            )
 
         def _serve_artifact(self, request_path: str) -> None:
             parts = [unquote(part) for part in request_path.split("/") if part]
@@ -477,6 +524,7 @@ def _build_handler(output_dir: Path) -> type[BaseHTTPRequestHandler]:
 
             content = target.read_bytes()
             content_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+            LOGGER.info("Serving artifact: %s bytes=%s", target, len(content))
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(content)))

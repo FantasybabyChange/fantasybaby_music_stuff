@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 import shutil
 import subprocess
@@ -11,6 +12,7 @@ import wave
 
 SUPPORTED_FFMPEG_SUFFIXES = {".mp3", ".flac"}
 SUPPORTED_WAV_SUFFIXES = {".wav"}
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -28,11 +30,13 @@ class AudioPreprocessor:
     """Prepare input audio before model-based transcription."""
 
     ffmpeg_binary: str | None = None
-    compressed_sample_rate: int = 22050
+    compressed_sample_rate: int = 11025
+    max_duration_seconds: float | None = 60.0
 
     def prepare(self, input_path: Path) -> PreparedAudio:
         """Validate and decode an audio file into normalized mono samples."""
         input_path = input_path.expanduser()
+        LOGGER.info("Preparing audio: %s", input_path)
         if not input_path.exists():
             raise FileNotFoundError(f"Audio file not found: {input_path}")
         suffix = input_path.suffix.lower()
@@ -44,6 +48,7 @@ class AudioPreprocessor:
         raise ValueError("Supported audio formats are WAV, MP3, and FLAC.")
 
     def _prepare_wav(self, input_path: Path) -> PreparedAudio:
+        LOGGER.info("Decoding WAV with built-in reader")
         with wave.open(str(input_path), "rb") as wav_file:
             channels = wav_file.getnchannels()
             sample_width = wav_file.getsampwidth()
@@ -54,6 +59,13 @@ class AudioPreprocessor:
         decoded = _decode_pcm(raw, sample_width)
         mono = _downmix(decoded, channels)
         duration = len(mono) / sample_rate if sample_rate else None
+        LOGGER.info(
+            "Prepared WAV: sample_rate=%s channels=%s duration=%.2fs samples=%s",
+            sample_rate,
+            channels,
+            duration or 0.0,
+            len(mono),
+        )
         return PreparedAudio(
             path=input_path,
             sample_rate=sample_rate,
@@ -63,12 +75,22 @@ class AudioPreprocessor:
 
     def _prepare_with_ffmpeg(self, input_path: Path) -> PreparedAudio:
         ffmpeg = self._resolve_ffmpeg_binary()
+        LOGGER.info(
+            "Decoding compressed audio with ffmpeg: sample_rate=%s max_duration=%s",
+            self.compressed_sample_rate,
+            self.max_duration_seconds,
+        )
+        LOGGER.debug("Using ffmpeg binary: %s", ffmpeg)
         command = [
             ffmpeg,
             "-v",
             "error",
             "-i",
             str(input_path),
+        ]
+        if self.max_duration_seconds:
+            command.extend(["-t", str(self.max_duration_seconds)])
+        command.extend([
             "-ac",
             "1",
             "-ar",
@@ -78,7 +100,7 @@ class AudioPreprocessor:
             "-acodec",
             "pcm_s16le",
             "pipe:1",
-        ]
+        ])
         try:
             result = subprocess.run(command, capture_output=True, check=True)
         except FileNotFoundError as exc:
@@ -92,6 +114,12 @@ class AudioPreprocessor:
 
         mono = _decode_pcm(result.stdout, sample_width=2)
         duration = len(mono) / self.compressed_sample_rate if self.compressed_sample_rate else None
+        LOGGER.info(
+            "Prepared compressed audio: sample_rate=%s duration=%.2fs samples=%s",
+            self.compressed_sample_rate,
+            duration or 0.0,
+            len(mono),
+        )
         return PreparedAudio(
             path=input_path,
             sample_rate=self.compressed_sample_rate,
@@ -105,13 +133,16 @@ class AudioPreprocessor:
 
         system_ffmpeg = shutil.which("ffmpeg")
         if system_ffmpeg:
+            LOGGER.debug("Resolved ffmpeg from PATH: %s", system_ffmpeg)
             return system_ffmpeg
 
         try:
             import imageio_ffmpeg
         except ImportError as exc:
             raise ValueError(_missing_ffmpeg_message()) from exc
-        return imageio_ffmpeg.get_ffmpeg_exe()
+        bundled_ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+        LOGGER.debug("Resolved ffmpeg from imageio-ffmpeg: %s", bundled_ffmpeg)
+        return bundled_ffmpeg
 
 
 def _decode_pcm(raw: bytes, sample_width: int) -> list[float]:
