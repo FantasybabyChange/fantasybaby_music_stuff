@@ -48,6 +48,8 @@ class SimplePitchMelodyTranscriber:
     correlation_threshold: float = 0.35
     min_note_duration: float = 0.08
     correlation_stride: int = 4
+    min_midi_pitch: int = 55
+    max_midi_pitch: int = 88
 
     def transcribe(self, audio: PreparedAudio) -> Melody:
         if not audio.samples or not audio.sample_rate:
@@ -118,7 +120,10 @@ class SimplePitchMelodyTranscriber:
         if not best_lag or best_score < self.correlation_threshold:
             return None
         frequency = sample_rate / best_lag
-        return round(69 + 12 * math.log2(frequency / 440.0))
+        pitch = round(69 + 12 * math.log2(frequency / 440.0))
+        if pitch < self.min_midi_pitch or pitch > self.max_midi_pitch:
+            return None
+        return pitch
 
     def _frames_to_notes(self, frames: list[tuple[float, float, int | None]]) -> list[NoteEvent]:
         notes: list[NoteEvent] = []

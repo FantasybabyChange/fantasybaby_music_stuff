@@ -20,7 +20,29 @@ def test_format_jianpu_uses_numbered_scale_degrees():
     score = format_jianpu(melody, analysis)
 
     assert "Key: 1=C" in score
+    assert "Legend:" in score
+    assert "Melody outline" in score
+    assert "Detailed rhythm draft" in score
     assert "1 2 3" in score
+
+
+def test_format_jianpu_uses_readable_duration_marks():
+    melody = Melody(
+        notes=(
+            NoteEvent(pitch=60, start=0.0, end=0.375),
+            NoteEvent(pitch=62, start=0.375, end=1.0),
+            NoteEvent(pitch=64, start=1.0, end=2.125),
+        ),
+        source="demo.wav",
+    )
+    analysis = AnalysisResult(key=KeyEstimate("C", "major"), tempo_bpm=120.0)
+
+    score = format_jianpu(melody, analysis)
+
+    assert "(0.75)" not in score
+    assert "(1.25)" not in score
+    assert "/." in score
+    assert "-" in score
 
 
 def test_transcribe_wav_writes_jianpu(tmp_path):
