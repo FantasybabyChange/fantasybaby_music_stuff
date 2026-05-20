@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import html
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
 import logging
 import mimetypes
 from pathlib import Path
@@ -15,11 +16,13 @@ from urllib.parse import unquote, urlparse
 import uuid
 import webbrowser
 
+from music_stuff.models import AnalysisResult, Melody, NoteEvent
 from music_stuff.pipeline import MusicTranscriptionPipeline
 
 
 SUPPORTED_UPLOAD_SUFFIXES = {".wav", ".mp3", ".flac"}
-DOWNLOADABLE_ARTIFACTS = {"melody.jianpu.txt", "analysis.json"}
+PLAYER_ARTIFACT_NAME = "melody.player.json"
+DOWNLOADABLE_ARTIFACTS = {"melody.jianpu.txt", "analysis.json", PLAYER_ARTIFACT_NAME}
 LOGGER = logging.getLogger(__name__)
 
 
@@ -59,6 +62,7 @@ def render_page(
     file_name: str | None = None,
     jianpu_href: str | None = None,
     analysis_href: str | None = None,
+    player_payload: dict[str, object] | None = None,
 ) -> str:
     result_html = _render_result(
         result_text=result_text,
@@ -66,6 +70,7 @@ def render_page(
         file_name=file_name,
         jianpu_href=jianpu_href,
         analysis_href=analysis_href,
+        player_payload=player_payload,
     )
     message_html = f'<p class="message">{html.escape(message)}</p>' if message else ""
     return f"""<!doctype html>
@@ -285,6 +290,53 @@ def render_page(
       border-color: #9ab6ad;
       background: #f7fbf8;
     }}
+    .player {{
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--line);
+      background: #fffaf0;
+    }}
+    .player-meta {{
+      min-width: 0;
+    }}
+    .player-title {{
+      margin: 0;
+      font-size: 14px;
+      font-weight: 760;
+    }}
+    .player-status {{
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }}
+    .player-controls {{
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }}
+    .player-controls button {{
+      width: 40px;
+      height: 36px;
+      display: inline-grid;
+      place-items: center;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #ffffff;
+      color: var(--accent-dark);
+      font-size: 15px;
+      font-weight: 800;
+    }}
+    .player-controls button:hover {{
+      border-color: #9ab6ad;
+      background: #f7fbf8;
+    }}
     .artifact {{
       color: var(--muted);
       font-size: 12px;
@@ -335,6 +387,12 @@ def render_page(
       }}
       .result {{
         min-height: 430px;
+      }}
+      .player {{
+        grid-template-columns: 1fr;
+      }}
+      .player-controls {{
+        justify-content: flex-start;
       }}
       h1 {{
         font-size: 28px;
@@ -402,6 +460,87 @@ def render_page(
         setTimeout(() => {{ button.textContent = "\\u590d\\u5236\\u7b80\\u8c31"; }}, 1400);
       }});
     }});
+
+    const playerDataNode = document.getElementById("melody-player-data");
+    if (playerDataNode) {{
+      const playerData = JSON.parse(playerDataNode.textContent);
+      const playButton = document.getElementById("melody-play");
+      const restartButton = document.getElementById("melody-restart");
+      const stopButton = document.getElementById("melody-stop");
+      const status = document.getElementById("melody-player-status");
+      let audioContext = null;
+      let scheduled = [];
+      let stopTimer = null;
+
+      const clearScheduled = () => {{
+        scheduled.forEach((node) => {{
+          try {{ node.stop(); }} catch (_error) {{}}
+        }});
+        scheduled = [];
+        if (stopTimer) {{
+          clearTimeout(stopTimer);
+          stopTimer = null;
+        }}
+      }};
+
+      const setStatus = (text) => {{
+        if (status) status.textContent = text;
+      }};
+
+      const pitchToFrequency = (pitch) => 440 * Math.pow(2, (pitch - 69) / 12);
+
+      const playMelody = async (restart = true) => {{
+        if (!playerData.notes.length) {{
+          setStatus("\\u6ca1\\u6709\\u53ef\\u64ad\\u653e\\u7684\\u65cb\\u5f8b");
+          return;
+        }}
+        clearScheduled();
+        audioContext = audioContext || new (window.AudioContext || window.webkitAudioContext)();
+        await audioContext.resume();
+        const now = audioContext.currentTime + 0.08;
+        const firstStart = restart ? playerData.notes[0].start : 0;
+        const master = audioContext.createGain();
+        master.gain.value = 0.12;
+        master.connect(audioContext.destination);
+
+        playerData.notes.forEach((note) => {{
+          const start = now + Math.max(0, note.start - firstStart);
+          const duration = Math.max(0.08, note.end - note.start);
+          const oscillator = audioContext.createOscillator();
+          const envelope = audioContext.createGain();
+          oscillator.type = "sine";
+          oscillator.frequency.value = pitchToFrequency(note.pitch);
+          envelope.gain.setValueAtTime(0.0001, start);
+          envelope.gain.exponentialRampToValueAtTime(0.9, start + 0.02);
+          envelope.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+          oscillator.connect(envelope).connect(master);
+          oscillator.start(start);
+          oscillator.stop(start + duration + 0.03);
+          scheduled.push(oscillator);
+        }});
+
+        const totalMs = Math.max(200, (playerData.durationSeconds - firstStart) * 1000 + 180);
+        setStatus("\\u6b63\\u5728\\u64ad\\u653e " + playerData.noteCount + " \\u4e2a\\u97f3");
+        stopTimer = setTimeout(() => {{
+          scheduled = [];
+          setStatus("\\u64ad\\u653e\\u5b8c\\u6210");
+        }}, totalMs);
+      }};
+
+      playButton?.addEventListener("click", () => {{
+        playMelody(true).catch(() => setStatus("\\u64ad\\u653e\\u88ab\\u6d4f\\u89c8\\u5668\\u62e6\\u622a\\uff0c\\u8bf7\\u518d\\u70b9\\u4e00\\u6b21"));
+      }});
+      restartButton?.addEventListener("click", () => {{
+        playMelody(true).catch(() => setStatus("\\u64ad\\u653e\\u5931\\u8d25"));
+      }});
+      stopButton?.addEventListener("click", () => {{
+        clearScheduled();
+        setStatus("\\u5df2\\u505c\\u6b62");
+      }});
+      window.addEventListener("load", () => {{
+        playMelody(true).catch(() => setStatus("\\u81ea\\u52a8\\u64ad\\u653e\\u88ab\\u6d4f\\u89c8\\u5668\\u62e6\\u622a\\uff0c\\u8bf7\\u70b9\\u51fb\\u64ad\\u653e"));
+      }});
+    }}
   </script>
 </body>
 </html>"""
@@ -448,6 +587,11 @@ def _build_handler(output_dir: Path) -> type[BaseHTTPRequestHandler]:
 
                 result = MusicTranscriptionPipeline().transcribe(input_path, run_dir)
                 result_text = result.jianpu_path.read_text(encoding="utf-8") if result.jianpu_path else ""
+                player_payload = _melody_player_payload(result.melody, result.analysis)
+                (run_dir / PLAYER_ARTIFACT_NAME).write_text(
+                    json.dumps(player_payload, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
                 self._send_html(
                     render_page(
                         result_text=result_text,
@@ -455,6 +599,7 @@ def _build_handler(output_dir: Path) -> type[BaseHTTPRequestHandler]:
                         file_name=upload.original_name,
                         jianpu_href=_artifact_href(run_id, "melody.jianpu.txt"),
                         analysis_href=_artifact_href(run_id, "analysis.json"),
+                        player_payload=player_payload,
                     )
                 )
                 LOGGER.info("Upload transcription rendered: run_id=%s", run_id)
@@ -487,11 +632,18 @@ def _build_handler(output_dir: Path) -> type[BaseHTTPRequestHandler]:
             run_dir = (output_root / run_id).resolve()
             jianpu_path = run_dir / "melody.jianpu.txt"
             analysis_path = run_dir / "analysis.json"
+            player_path = run_dir / PLAYER_ARTIFACT_NAME
             if not run_dir.is_relative_to(output_root) or not jianpu_path.exists():
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return
 
             result_text = jianpu_path.read_text(encoding="utf-8")
+            player_payload = None
+            if player_path.exists():
+                player_payload = _loaded_player_payload(
+                    json.loads(player_path.read_text(encoding="utf-8-sig")),
+                    analysis_path,
+                )
             LOGGER.info("Serving run page: run_id=%s", run_id)
             self._send_html(
                 render_page(
@@ -500,6 +652,7 @@ def _build_handler(output_dir: Path) -> type[BaseHTTPRequestHandler]:
                     file_name=run_id,
                     jianpu_href=_artifact_href(run_id, "melody.jianpu.txt"),
                     analysis_href=_artifact_href(run_id, "analysis.json") if analysis_path.exists() else None,
+                    player_payload=player_payload,
                 )
             )
 
@@ -570,6 +723,7 @@ def _render_result(
     file_name: str | None,
     jianpu_href: str | None = None,
     analysis_href: str | None = None,
+    player_payload: dict[str, object] | None = None,
 ) -> str:
     if not result_text:
         return """<div class="result-head">
@@ -585,12 +739,152 @@ def _render_result(
         actions.append(f'<a href="{html.escape(analysis_href)}" download>&#19979;&#36733;&#20998;&#26512;</a>')
     if artifact_path:
         actions.append(f'<span class="artifact">{html.escape(str(artifact_path))}</span>')
+    player_html = _render_player(player_payload)
 
     return f"""<div class="result-head">
       <div><h2>&#31616;&#35889;&#32467;&#26524;</h2><p>{source}</p></div>
       <div class="actions">{"".join(actions)}</div>
     </div>
+    {player_html}
     <pre id="jianpu-result">{html.escape(result_text)}</pre>"""
+
+
+def _render_player(player_payload: dict[str, object] | None) -> str:
+    if not player_payload:
+        return ""
+    encoded_payload = html.escape(json.dumps(player_payload, ensure_ascii=False), quote=False)
+    note_count = int(player_payload.get("noteCount", 0))
+    duration = float(player_payload.get("durationSeconds", 0.0))
+    tempo_bpm = player_payload.get("tempoBpm")
+    tempo_text = f"&#65292;{float(tempo_bpm):.1f} bpm" if tempo_bpm else ""
+    return f"""<section class="player" aria-label="Jianpu melody player">
+      <div class="player-meta">
+        <p class="player-title">&#31616;&#35889;&#26059;&#24459;&#25773;&#25918;&#22120;</p>
+        <p id="melody-player-status" class="player-status">{note_count} &#20010;&#38899;&#65292;{duration:.1f}s{tempo_text}</p>
+      </div>
+      <div class="player-controls">
+        <button id="melody-play" type="button" title="&#25773;&#25918;" aria-label="&#25773;&#25918;">&#9654;</button>
+        <button id="melody-restart" type="button" title="&#37325;&#22836;&#25773;&#25918;" aria-label="&#37325;&#22836;&#25773;&#25918;">&#8635;</button>
+        <button id="melody-stop" type="button" title="&#20572;&#27490;" aria-label="&#20572;&#27490;">&#9632;</button>
+      </div>
+      <script id="melody-player-data" type="application/json">{encoded_payload}</script>
+    </section>"""
+
+
+def _melody_player_payload(melody: Melody, analysis: AnalysisResult | None = None) -> dict[str, object]:
+    tempo_bpm = _player_tempo_bpm(analysis)
+    notes = _score_time_player_notes(melody, tempo_bpm)
+    duration = max((float(note["end"]) for note in notes), default=0.0)
+    return {
+        "source": melody.source,
+        "sourceKind": melody.source_kind,
+        "sourceLabel": melody.source_label,
+        "sourceConfidence": melody.source_confidence,
+        "tempoBpm": tempo_bpm,
+        "noteCount": len(notes),
+        "durationSeconds": round(duration, 4),
+        "notes": notes,
+    }
+
+
+def _loaded_player_payload(payload: dict[str, object], analysis_path: Path) -> dict[str, object]:
+    if payload.get("tempoBpm") is not None:
+        return payload
+    notes = payload.get("notes")
+    if not isinstance(notes, list):
+        return payload
+
+    melody_notes: list[NoteEvent] = []
+    for item in notes:
+        if not isinstance(item, dict):
+            continue
+        try:
+            melody_notes.append(
+                NoteEvent(
+                    pitch=int(item["pitch"]),
+                    start=float(item["start"]),
+                    end=float(item["end"]),
+                    velocity=int(item.get("velocity", 80)),
+                )
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
+
+    melody = Melody(
+        notes=tuple(melody_notes),
+        source=str(payload.get("source", "")),
+        source_kind=str(payload.get("sourceKind", "mixed")),
+        source_label=str(payload.get("sourceLabel", "")),
+        source_confidence=payload.get("sourceConfidence") if isinstance(payload.get("sourceConfidence"), float) else None,
+    )
+    return _melody_player_payload(melody, _analysis_from_json(analysis_path))
+
+
+def _analysis_from_json(path: Path) -> AnalysisResult | None:
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return AnalysisResult(tempo_bpm=data.get("tempo_bpm"))
+
+
+def _player_tempo_bpm(analysis: AnalysisResult | None) -> float | None:
+    if analysis is None or analysis.tempo_bpm is None:
+        return None
+    try:
+        tempo_bpm = float(analysis.tempo_bpm)
+    except (TypeError, ValueError):
+        return None
+    if tempo_bpm <= 0:
+        return None
+    return tempo_bpm
+
+
+def _score_time_player_notes(melody: Melody, tempo_bpm: float | None) -> list[dict[str, float | int]]:
+    source_notes = [
+        note
+        for note in sorted(melody.notes, key=lambda item: (item.start, item.pitch))
+        if note.pitch >= 0 and note.end > note.start
+    ]
+    if not source_notes:
+        return []
+
+    beat_seconds = 60.0 / tempo_bpm if tempo_bpm else None
+    grid_seconds = beat_seconds / 4.0 if beat_seconds else None
+    rest_threshold = beat_seconds or 0.5
+    cursor_source = source_notes[0].start
+    cursor_play = 0.0
+    player_notes: list[dict[str, float | int]] = []
+
+    for note in source_notes:
+        gap = note.start - cursor_source
+        if gap >= rest_threshold:
+            cursor_play += _round_to_grid(gap, grid_seconds)
+
+        duration = _round_to_grid(note.end - note.start, grid_seconds)
+        duration = max(grid_seconds or 0.08, duration)
+        start = cursor_play
+        end = start + duration
+        player_notes.append(
+            {
+                "pitch": note.pitch,
+                "start": round(start, 4),
+                "end": round(end, 4),
+                "velocity": note.velocity,
+            }
+        )
+        cursor_play = end
+        cursor_source = max(cursor_source, note.end)
+    return player_notes
+
+
+def _round_to_grid(seconds: float, grid_seconds: float | None) -> float:
+    if grid_seconds is None or grid_seconds <= 0:
+        return max(0.05, seconds)
+    grid_count = max(1, round(seconds / grid_seconds))
+    return grid_count * grid_seconds
 
 
 def _safe_filename(file_name: str) -> str:
