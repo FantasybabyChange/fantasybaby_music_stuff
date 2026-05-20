@@ -51,3 +51,7 @@ def test_quantize_uses_real_tempo_and_beat_offset():
     assert quantized.notes[0].end == 0.7
     assert quantized.notes[1].start == 0.7
     assert quantized.notes[1].end == 1.3
+
+
+def test_normalize_tempo_halves_likely_double_time():
+    assert RhythmQuantizer()._normalize_tempo_range(172.0) == 86.0

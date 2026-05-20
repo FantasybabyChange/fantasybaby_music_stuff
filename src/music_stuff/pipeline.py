@@ -10,7 +10,12 @@ from time import perf_counter
 
 from music_stuff.audio import AudioPreprocessor
 from music_stuff.harmony import ChordAnalyzer, KeyAnalyzer, build_analysis
-from music_stuff.melody import AutoMelodyTranscriber, MelodyTranscriber
+from music_stuff.melody import (
+    AutoMelodyTranscriber,
+    BasicPitchMelodyTranscriber,
+    MelodyTranscriber,
+    MixedAudioMelodyTranscriber,
+)
 from music_stuff.models import Melody, TranscriptionResult
 from music_stuff.rhythm import RhythmQuantizer
 from music_stuff.score import ScoreExporter
@@ -134,7 +139,7 @@ class MusicTranscriptionPipeline:
         for stem in separation.stems:
             try:
                 stem_audio = self.audio_preprocessor.prepare(stem.path)
-                melody = self.melody_transcriber.transcribe(stem_audio)
+                melody = self._transcribe_stem_melody(stem_audio, stem)
             except Exception as exc:
                 LOGGER.warning("Skipping separated stem %s after melody extraction failed: %s", stem.label, exc)
                 continue
@@ -180,6 +185,25 @@ class MusicTranscriptionPipeline:
             source_label=label,
             source_confidence=confidence,
         )
+
+    def _transcribe_stem_melody(self, stem_audio, stem: SourceStem) -> Melody:
+        if stem.kind != HUMAN_VOICE or not isinstance(self.melody_transcriber, AutoMelodyTranscriber):
+            return self.melody_transcriber.transcribe(stem_audio)
+
+        vocal_transcriber = AutoMelodyTranscriber(
+            basic_pitch=BasicPitchMelodyTranscriber(
+                min_midi_pitch=43,
+                max_midi_pitch=84,
+                preferred_midi_pitch=64,
+                continuity_weight=0.55,
+            ),
+            fallback=MixedAudioMelodyTranscriber(
+                min_midi_pitch=43,
+                max_midi_pitch=84,
+                preferred_midi_pitch=64,
+            ),
+        )
+        return vocal_transcriber.transcribe(stem_audio)
 
     def _score_melody_candidate(self, melody: Melody) -> float:
         if not melody.notes:

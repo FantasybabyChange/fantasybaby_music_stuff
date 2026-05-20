@@ -51,6 +51,7 @@ class RhythmQuantizer:
         if not math.isfinite(tempo_bpm) or tempo_bpm <= 0:
             LOGGER.warning("Beat tracker returned invalid tempo %r; using default tempo %.1f", tempo, self.default_tempo_bpm)
             return self._fallback_estimate()
+        tempo_bpm = self._normalize_tempo_range(tempo_bpm)
 
         beat_times = tuple(float(value) for value in librosa.frames_to_time(beat_frames, sr=audio.sample_rate))
         beat_offset = self._estimate_beat_offset(beat_times, tempo_bpm)
@@ -137,3 +138,13 @@ class RhythmQuantizer:
     def _snap_to_grid(self, seconds: float, grid_seconds: float, offset: float) -> float:
         grid_index = round((seconds - offset) / grid_seconds)
         return max(0.0, offset + grid_index * grid_seconds)
+
+    def _normalize_tempo_range(self, tempo_bpm: float) -> float:
+        normalized = tempo_bpm
+        while normalized > 160.0:
+            normalized /= 2.0
+        while normalized < 60.0:
+            normalized *= 2.0
+        if not math.isclose(normalized, tempo_bpm):
+            LOGGER.info("Normalized tempo from %.2f bpm to %.2f bpm", tempo_bpm, normalized)
+        return normalized
