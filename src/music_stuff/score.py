@@ -52,6 +52,7 @@ class ScoreExporter:
 def format_jianpu(melody: Melody, analysis: AnalysisResult) -> str:
     """Render a readable numbered-notation draft."""
     tempo_bpm = analysis.tempo_bpm or 120.0
+    meter = analysis.meter or "4/4"
     key_tonic = analysis.key.tonic if analysis.key else "C"
     beat_seconds = 60.0 / tempo_bpm
     events = _melody_events_with_rests(melody.notes, beat_seconds)
@@ -60,11 +61,12 @@ def format_jianpu(melody: Melody, analysis: AnalysisResult) -> str:
     lines = [
         "Jianpu melody draft",
         f"Source: {melody.source}",
+        f"Main melody source: {melody.source_label}",
         f"Key: 1={key_tonic}",
         f"Tempo: {tempo_bpm:g} bpm",
-        "Meter: 4/4",
+        f"Meter: {meter}",
         "Legend: 1-7=scale degrees, #/b=accidentals, '=higher octave, ,=lower octave, /=short, -=hold, 0=rest",
-        "Note: This is an automatic melody draft; dense accompaniment can still leak into the line.",
+        "Note: This exports one selected main melody only; multi-track vocal/accompaniment scores will come later.",
         "",
         "Melody outline (pitch only, repeated notes collapsed):",
     ]

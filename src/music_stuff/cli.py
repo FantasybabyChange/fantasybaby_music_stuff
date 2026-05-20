@@ -65,7 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
     ui_parser.add_argument(
         "--port",
         type=int,
-        default=8000,
+        default=8767,
         help="Port for the local web UI.",
     )
     ui_parser.add_argument(

@@ -23,8 +23,8 @@ def test_prepare_mp3_uses_ffmpeg_decoder(tmp_path, monkeypatch):
 
     prepared = AudioPreprocessor(ffmpeg_binary="ffmpeg-test").prepare(audio_path)
 
-    assert prepared.sample_rate == 11025
-    assert prepared.duration_seconds == len(prepared.samples) / 11025
+    assert prepared.sample_rate == 22050
+    assert prepared.duration_seconds == len(prepared.samples) / 22050
     assert prepared.samples[1] == 0.5
     assert calls[0][0] == "ffmpeg-test"
     assert "-i" in calls[0]
@@ -41,7 +41,7 @@ def test_prepare_flac_uses_ffmpeg_decoder(tmp_path, monkeypatch):
 
     prepared = AudioPreprocessor(ffmpeg_binary="ffmpeg-test").prepare(audio_path)
 
-    assert prepared.sample_rate == 11025
+    assert prepared.sample_rate == 22050
     assert prepared.samples == (0.0,)
 
 

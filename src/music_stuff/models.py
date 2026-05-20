@@ -22,6 +22,20 @@ class Melody:
 
     notes: tuple[NoteEvent, ...]
     source: str
+    source_kind: str = "mixed"
+    source_label: str = "原始混音"
+    source_confidence: float | None = None
+
+
+@dataclass(frozen=True)
+class RhythmEstimate:
+    """Estimated beat grid for rhythmic quantization."""
+
+    tempo_bpm: float
+    beat_times: tuple[float, ...] = field(default_factory=tuple)
+    beat_offset: float = 0.0
+    meter: str = "4/4"
+    confidence: float | None = None
 
 
 @dataclass(frozen=True)

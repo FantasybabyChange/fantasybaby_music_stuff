@@ -3,9 +3,17 @@ name = "music-stuff"
 version = "0.1.0"
 description = "Audio-to-score experiments for melody, key, and chord extraction."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.12"
 dependencies = [
+    "basic-pitch[onnx]>=0.4.0",
     "imageio-ffmpeg>=0.6.0",
+    "librosa>=0.11.0",
+    "setuptools>=70,<81",
+]
+
+[project.optional-dependencies]
+separation = [
+    "demucs>=4.0.1",
 ]
 
 [project.scripts]
@@ -25,3 +33,8 @@ packages = ["src/music_stuff"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.uv]
+override-dependencies = [
+    "tensorflow; sys_platform != 'win32' and sys_platform != 'darwin'",
+]

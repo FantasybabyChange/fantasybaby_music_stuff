@@ -30,7 +30,7 @@ class AudioPreprocessor:
     """Prepare input audio before model-based transcription."""
 
     ffmpeg_binary: str | None = None
-    compressed_sample_rate: int = 11025
+    compressed_sample_rate: int = 22050
     max_duration_seconds: float | None = 60.0
 
     def prepare(self, input_path: Path) -> PreparedAudio:

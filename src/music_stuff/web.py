@@ -26,7 +26,7 @@ LOGGER = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class UIConfig:
     host: str = "127.0.0.1"
-    port: int = 8787
+    port: int = 8767
     output_dir: Path = Path("output/ui")
     open_browser: bool = False
 
