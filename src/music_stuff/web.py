@@ -41,6 +41,16 @@ class UploadedAudio:
     content: bytes
 
 
+@dataclass(frozen=True)
+class RunSummary:
+    run_id: str
+    label: str
+    updated_at: str
+    note_count: int | None = None
+    duration_seconds: float | None = None
+    can_play: bool = False
+
+
 def run_ui(config: UIConfig) -> None:
     """Start the local transcription UI."""
     handler = _build_handler(config.output_dir)
@@ -63,6 +73,7 @@ def render_page(
     jianpu_href: str | None = None,
     analysis_href: str | None = None,
     player_payload: dict[str, object] | None = None,
+    history_runs: tuple[RunSummary, ...] = (),
 ) -> str:
     result_html = _render_result(
         result_text=result_text,
@@ -72,6 +83,7 @@ def render_page(
         analysis_href=analysis_href,
         player_payload=player_payload,
     )
+    history_html = _render_history(history_runs)
     message_html = f'<p class="message">{html.escape(message)}</p>' if message else ""
     return f"""<!doctype html>
 <html lang="zh-CN">
@@ -236,6 +248,57 @@ def render_page(
       color: #6d4a09;
       border: 1px solid #ead7a8;
       font-size: 14px;
+    }}
+    .history {{
+      border-top: 1px solid var(--line);
+      padding-top: 14px;
+    }}
+    .history h2 {{
+      margin: 0 0 10px;
+      font-size: 15px;
+      line-height: 1.2;
+    }}
+    .history-list {{
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }}
+    .history-item a {{
+      display: block;
+      padding: 10px 11px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfdfb;
+      color: var(--ink);
+      text-decoration: none;
+    }}
+    .history-item a:hover {{
+      border-color: #9ab6ad;
+      background: #f7fbf8;
+    }}
+    .history-title {{
+      display: block;
+      font-size: 13px;
+      font-weight: 750;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }}
+    .history-meta {{
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }}
+    .history-empty {{
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
     }}
     .result {{
       display: flex;
@@ -424,6 +487,7 @@ def render_page(
         <audio id="preview" controls></audio>
         {message_html}
         <button id="submit-button" type="submit">&#25552;&#21462;&#20027;&#26059;&#24459;&#24182;&#29983;&#25104;&#31616;&#35889;</button>
+        {history_html}
       </form>
       <section class="panel result">
         {result_html}
@@ -624,7 +688,7 @@ def _build_handler(output_dir: Path) -> type[BaseHTTPRequestHandler]:
             parsed = urlparse(self.path)
             LOGGER.info("HTTP GET %s", parsed.path)
             if parsed.path in {"/", "/index.html"}:
-                self._send_html(render_page())
+                self._send_html(render_page(history_runs=_list_run_summaries(output_root)))
                 return
             if parsed.path.startswith("/runs/"):
                 self._serve_run_page(parsed.path)
@@ -670,12 +734,16 @@ def _build_handler(output_dir: Path) -> type[BaseHTTPRequestHandler]:
                         jianpu_href=_artifact_href(run_id, "melody.jianpu.txt"),
                         analysis_href=_artifact_href(run_id, "analysis.json"),
                         player_payload=player_payload,
+                        history_runs=_list_run_summaries(output_root),
                     )
                 )
                 LOGGER.info("Upload transcription rendered: run_id=%s", run_id)
             except Exception as exc:
                 LOGGER.exception("Upload transcription failed")
-                self._send_html(render_page(message=str(exc)), status=HTTPStatus.BAD_REQUEST)
+                self._send_html(
+                    render_page(message=str(exc), history_runs=_list_run_summaries(output_root)),
+                    status=HTTPStatus.BAD_REQUEST,
+                )
 
         def log_message(self, format: str, *args: object) -> None:
             return
@@ -723,6 +791,7 @@ def _build_handler(output_dir: Path) -> type[BaseHTTPRequestHandler]:
                     jianpu_href=_artifact_href(run_id, "melody.jianpu.txt"),
                     analysis_href=_artifact_href(run_id, "analysis.json") if analysis_path.exists() else None,
                     player_payload=player_payload,
+                    history_runs=_list_run_summaries(output_root),
                 )
             )
 
@@ -784,6 +853,113 @@ def _build_handler(output_dir: Path) -> type[BaseHTTPRequestHandler]:
             )
 
     return MusicStuffHandler
+
+
+def _render_history(history_runs: tuple[RunSummary, ...]) -> str:
+    if not history_runs:
+        return """<section class="history" aria-label="history">
+          <h2>&#21382;&#21490;&#31616;&#35889;</h2>
+          <p class="history-empty">&#37325;&#21551;&#21518;&#65292;&#24050;&#29983;&#25104;&#30340;&#31616;&#35889;&#20250;&#20986;&#29616;&#22312;&#36825;&#37324;&#12290;</p>
+        </section>"""
+
+    items: list[str] = []
+    for run in history_runs:
+        bits = [run.updated_at]
+        if run.note_count is not None:
+            bits.append(f"{run.note_count} notes")
+        if run.duration_seconds is not None:
+            bits.append(f"{run.duration_seconds:.1f}s")
+        if run.can_play:
+            bits.append("playable")
+        meta = " · ".join(bits)
+        items.append(
+            f"""<li class="history-item">
+              <a href="/runs/{html.escape(run.run_id)}" title="{html.escape(run.label)}">
+                <span class="history-title">{html.escape(run.label)}</span>
+                <span class="history-meta">{html.escape(meta)}</span>
+              </a>
+            </li>"""
+        )
+
+    return f"""<section class="history" aria-label="history">
+      <h2>&#21382;&#21490;&#31616;&#35889;</h2>
+      <ul class="history-list">{"".join(items)}</ul>
+    </section>"""
+
+
+def _list_run_summaries(output_root: Path, *, limit: int = 12) -> tuple[RunSummary, ...]:
+    if not output_root.exists():
+        return ()
+
+    runs: list[tuple[float, RunSummary]] = []
+    for run_dir in output_root.iterdir():
+        if not run_dir.is_dir() or not re.fullmatch(r"[a-f0-9]{12}", run_dir.name):
+            continue
+
+        jianpu_path = run_dir / "melody.jianpu.txt"
+        if not jianpu_path.exists():
+            continue
+
+        player_path = run_dir / PLAYER_ARTIFACT_NAME
+        updated_timestamp = jianpu_path.stat().st_mtime
+        payload = _read_player_payload(player_path)
+        runs.append(
+            (
+                updated_timestamp,
+                RunSummary(
+                    run_id=run_dir.name,
+                    label=_run_label(run_dir, payload),
+                    updated_at=_format_timestamp(updated_timestamp),
+                    note_count=_optional_int(payload.get("noteCount")) if payload else None,
+                    duration_seconds=_optional_float(payload.get("durationSeconds")) if payload else None,
+                    can_play=bool(payload and payload.get("notes")),
+                ),
+            )
+        )
+
+    runs.sort(key=lambda item: item[0], reverse=True)
+    return tuple(run for _timestamp, run in runs[:limit])
+
+
+def _read_player_payload(player_path: Path) -> dict[str, object] | None:
+    if not player_path.exists():
+        return None
+    try:
+        payload = json.loads(player_path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _run_label(run_dir: Path, payload: dict[str, object] | None) -> str:
+    for child in sorted(run_dir.iterdir(), key=lambda item: item.stat().st_mtime):
+        if child.is_file() and child.suffix.lower() in SUPPORTED_UPLOAD_SUFFIXES:
+            return child.name
+
+    source = payload.get("source") if payload else None
+    if isinstance(source, str) and source:
+        return Path(source).name or run_dir.name
+    return run_dir.name
+
+
+def _format_timestamp(timestamp: float) -> str:
+    from datetime import datetime
+
+    return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M")
+
+
+def _optional_int(value: object) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_float(value: object) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _render_result(

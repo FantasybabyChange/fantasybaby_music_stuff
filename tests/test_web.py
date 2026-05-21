@@ -1,5 +1,14 @@
 from music_stuff.models import AnalysisResult, Melody, NoteEvent
-from music_stuff.web import _loaded_player_payload, _melody_player_payload, _safe_filename, render_page
+import json
+
+from music_stuff.web import (
+    RunSummary,
+    _list_run_summaries,
+    _loaded_player_payload,
+    _melody_player_payload,
+    _safe_filename,
+    render_page,
+)
 
 
 def test_render_page_contains_upload_workbench():
@@ -12,6 +21,27 @@ def test_render_page_contains_upload_workbench():
     assert "MP3" in page
     assert "FLAC" in page
     assert "preview" in page
+    assert "history" in page
+
+
+def test_render_page_includes_history_runs():
+    page = render_page(
+        history_runs=(
+            RunSummary(
+                run_id="abc123abc123",
+                label="demo.mp3",
+                updated_at="2026-05-21 23:50",
+                note_count=42,
+                duration_seconds=12.5,
+                can_play=True,
+            ),
+        )
+    )
+
+    assert "/runs/abc123abc123" in page
+    assert "demo.mp3" in page
+    assert "42 notes" in page
+    assert "playable" in page
 
 
 def test_render_page_escapes_result_text():
@@ -117,6 +147,33 @@ def test_loaded_legacy_player_payload_is_retimed_from_analysis(tmp_path):
     assert retimed["tempoBpm"] == 120.0
     assert retimed["notes"][0]["end"] == 0.5
     assert retimed["notes"][1]["start"] == 0.5
+
+
+def test_list_run_summaries_reads_previous_outputs(tmp_path):
+    run_dir = tmp_path / "abc123abc123"
+    run_dir.mkdir()
+    (run_dir / "demo.mp3").write_bytes(b"demo")
+    (run_dir / "melody.jianpu.txt").write_text("1 2 3", encoding="utf-8")
+    (run_dir / "melody.player.json").write_text(
+        json.dumps(
+            {
+                "source": "demo.mp3",
+                "noteCount": 3,
+                "durationSeconds": 1.5,
+                "notes": [{"pitch": 60, "start": 0.0, "end": 0.5, "velocity": 80}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summaries = _list_run_summaries(tmp_path)
+
+    assert len(summaries) == 1
+    assert summaries[0].run_id == "abc123abc123"
+    assert summaries[0].label == "demo.mp3"
+    assert summaries[0].note_count == 3
+    assert summaries[0].duration_seconds == 1.5
+    assert summaries[0].can_play is True
 
 
 def test_safe_filename_preserves_supported_suffix():
