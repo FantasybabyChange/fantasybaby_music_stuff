@@ -14,6 +14,8 @@ dependencies = [
 [project.optional-dependencies]
 separation = [
     "demucs>=4.0.1",
+    "torch==2.11.0+cu128",
+    "torchaudio==2.11.0+cu128",
 ]
 
 [project.scripts]
@@ -38,3 +40,12 @@ testpaths = ["tests"]
 override-dependencies = [
     "tensorflow; sys_platform != 'win32' and sys_platform != 'darwin'",
 ]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }

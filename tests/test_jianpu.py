@@ -21,9 +21,8 @@ def test_format_jianpu_uses_numbered_scale_degrees():
 
     assert "Key: 1=C" in score
     assert "Legend:" in score
-    assert "Melody outline" in score
-    assert "Detailed rhythm draft" in score
-    assert "1 2 3" in score
+    assert "标准简谱：" in score
+    assert "| 1 2 3" in score
 
 
 def test_format_jianpu_uses_readable_duration_marks():
@@ -41,8 +40,29 @@ def test_format_jianpu_uses_readable_duration_marks():
 
     assert "(0.75)" not in score
     assert "(1.25)" not in score
-    assert "/." in score
+    detailed = score.split("标准简谱：", 1)[1]
+    assert "/" not in detailed
+    assert "\u0332." in score
     assert "-" in score
+
+
+def test_format_jianpu_uses_standard_measure_bars_and_holds():
+    melody = Melody(
+        notes=(
+            NoteEvent(pitch=60, start=0.0, end=2.0),
+            NoteEvent(pitch=72, start=2.0, end=2.25),
+            NoteEvent(pitch=48, start=2.25, end=2.5),
+        ),
+        source="demo.wav",
+    )
+    analysis = AnalysisResult(key=KeyEstimate("C", "major"), tempo_bpm=120.0)
+
+    score = format_jianpu(melody, analysis)
+
+    assert "| 1 - - - |" in score
+    assert "1\u0307\u0332" in score
+    assert "1\u0323\u0332" in score
+    assert score.rstrip().endswith("||")
 
 
 def test_format_jianpu_trims_long_leading_silence_from_display():
@@ -58,9 +78,9 @@ def test_format_jianpu_trims_long_leading_silence_from_display():
     score = format_jianpu(melody, analysis)
 
     assert "Melody entry: 37.00s" in score
-    detailed = score.split("Detailed rhythm draft:", 1)[1].strip()
-    assert detailed.startswith("1")
-    assert not detailed.startswith("0")
+    detailed = score.split("标准简谱：", 1)[1].strip()
+    assert detailed.startswith("| 1")
+    assert not detailed.startswith("| 0")
 
 
 def test_format_jianpu_trims_sparse_vocal_false_starts():
@@ -89,8 +109,8 @@ def test_format_jianpu_trims_sparse_vocal_false_starts():
     score = format_jianpu(melody, analysis)
 
     assert "Melody entry: 37.50s" in score
-    detailed = score.split("Detailed rhythm draft:", 1)[1].strip()
-    assert not detailed.startswith("0")
+    detailed = score.split("标准简谱：", 1)[1].strip()
+    assert not detailed.startswith("| 0")
 
 
 def test_transcribe_wav_writes_jianpu(tmp_path):

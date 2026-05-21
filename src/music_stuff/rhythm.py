@@ -8,7 +8,7 @@ import math
 from statistics import median
 
 from music_stuff.audio import PreparedAudio
-from music_stuff.models import Melody, RhythmEstimate
+from music_stuff.models import Melody, NoteEvent, RhythmEstimate
 
 
 LOGGER = logging.getLogger(__name__)
@@ -79,7 +79,7 @@ class RhythmQuantizer:
         beat_seconds = 60.0 / estimate.tempo_bpm
         grid_seconds = beat_seconds / self.subdivisions_per_beat
         offset = estimate.beat_offset
-        quantized_notes = []
+        quantized_notes: list[NoteEvent] = []
         for note in melody.notes:
             start = self._snap_to_grid(note.start, grid_seconds, offset)
             end = self._snap_to_grid(note.end, grid_seconds, offset)
@@ -93,6 +93,7 @@ class RhythmQuantizer:
                     velocity=note.velocity,
                 )
             )
+        quantized_notes = self._clean_quantized_notes(quantized_notes, grid_seconds)
         return Melody(
             notes=tuple(quantized_notes),
             source=melody.source,
@@ -138,6 +139,47 @@ class RhythmQuantizer:
     def _snap_to_grid(self, seconds: float, grid_seconds: float, offset: float) -> float:
         grid_index = round((seconds - offset) / grid_seconds)
         return max(0.0, offset + grid_index * grid_seconds)
+
+    def _clean_quantized_notes(self, notes: list[NoteEvent], grid_seconds: float) -> list[NoteEvent]:
+        cleaned: list[NoteEvent] = []
+        merge_gap = grid_seconds * 0.51
+        for note in sorted(notes, key=lambda item: (item.start, item.end, item.pitch)):
+            start = max(0.0, note.start)
+            end = max(note.end, start + grid_seconds)
+            current = NoteEvent(
+                pitch=note.pitch,
+                start=start,
+                end=end,
+                velocity=note.velocity,
+            )
+            if not cleaned:
+                cleaned.append(current)
+                continue
+
+            previous = cleaned[-1]
+            gap = current.start - previous.end
+            if current.pitch == previous.pitch and gap <= merge_gap:
+                cleaned[-1] = NoteEvent(
+                    pitch=previous.pitch,
+                    start=previous.start,
+                    end=max(previous.end, current.end),
+                    velocity=max(previous.velocity, current.velocity),
+                )
+                continue
+
+            if current.start < previous.end:
+                adjusted_start = previous.end
+                if current.end <= adjusted_start:
+                    continue
+                current = NoteEvent(
+                    pitch=current.pitch,
+                    start=adjusted_start,
+                    end=current.end,
+                    velocity=current.velocity,
+                )
+
+            cleaned.append(current)
+        return cleaned
 
     def _normalize_tempo_range(self, tempo_bpm: float) -> float:
         normalized = tempo_bpm

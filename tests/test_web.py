@@ -53,6 +53,9 @@ def test_render_page_includes_autoplay_melody_player():
     assert "melody-player-data" in page
     assert "melody-play" in page
     assert "playMelody(true)" in page
+    assert "createBiquadFilter" in page
+    assert "createDynamicsCompressor" in page
+    assert '"triangle"' in page
     assert '"pitch": 60' in page
 
 

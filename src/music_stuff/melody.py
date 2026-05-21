@@ -37,7 +37,7 @@ class BasicPitchMelodyTranscriber:
     """Use Spotify Basic Pitch when it is installed in the runtime."""
 
     model_name: str = "basic-pitch"
-    min_midi_pitch: int = 55
+    min_midi_pitch: int = 48
     max_midi_pitch: int = 88
     min_note_duration: float = 0.08
     melody_frame_seconds: float = 0.10
@@ -213,7 +213,7 @@ class MixedAudioMelodyTranscriber:
     fallback: "SimplePitchMelodyTranscriber" = field(default_factory=lambda: SimplePitchMelodyTranscriber())
     frame_size: int = 2048
     hop_size: int = 512
-    min_midi_pitch: int = 55
+    min_midi_pitch: int = 48
     max_midi_pitch: int = 88
     preferred_midi_pitch: int = 72
     min_note_duration: float = 0.12
@@ -348,7 +348,7 @@ class SimplePitchMelodyTranscriber:
     correlation_threshold: float = 0.35
     min_note_duration: float = 0.08
     correlation_stride: int = 4
-    min_midi_pitch: int = 55
+    min_midi_pitch: int = 48
     max_midi_pitch: int = 88
 
     def transcribe(self, audio: PreparedAudio) -> Melody:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from fractions import Fraction
 import json
 import logging
@@ -13,6 +13,19 @@ from music_stuff.models import AnalysisResult, Melody, NoteEvent
 
 
 LOGGER = logging.getLogger(__name__)
+
+_UNITS_PER_BEAT = 4
+_SMALLEST_BEAT = Fraction(1, _UNITS_PER_BEAT)
+_DOT_ABOVE = "\u0307"
+_DOT_BELOW = "\u0323"
+_UNDERLINE = "\u0332"
+_DOUBLE_UNDERLINE = "\u0333"
+
+
+@dataclass(frozen=True)
+class _JianpuEvent:
+    pitch: int
+    duration_beats: Fraction
 
 
 class ScoreExporter:
@@ -50,40 +63,52 @@ class ScoreExporter:
 
 
 def format_jianpu(melody: Melody, analysis: AnalysisResult) -> str:
-    """Render a readable numbered-notation draft."""
+    """Render the selected melody as standard numbered musical notation."""
     tempo_bpm = analysis.tempo_bpm or 120.0
     meter = analysis.meter or "4/4"
     key_tonic = analysis.key.tonic if analysis.key else "C"
+    key_mode = analysis.key.mode if analysis.key else "major"
     beat_seconds = 60.0 / tempo_bpm
+    measure_beats = _measure_beats(meter)
     display_offset = _display_offset_seconds(melody.notes, beat_seconds, melody.source_kind)
     display_notes = _shift_notes(melody.notes, display_offset)
     events = _melody_events_with_rests(display_notes, beat_seconds)
-    tokens = [_format_event(event, key_tonic, beat_seconds) for event in events]
+    measures = _render_measures(events, key_tonic, measure_beats)
 
     lines = [
-        "Jianpu melody draft",
+        "标准简谱（主旋律）",
         f"Source: {melody.source}",
         f"Main melody source: {melody.source_label}",
-        f"Key: 1={key_tonic}",
-        f"Tempo: {tempo_bpm:g} bpm",
+        f"Key: 1={key_tonic} ({key_mode})",
+        f"Tempo: ♩={tempo_bpm:g}",
         f"Meter: {meter}",
-        "Legend: 1-7=scale degrees, #/b=accidentals, '=higher octave, ,=lower octave, /=short, -=hold, 0=rest",
-        "Note: This exports one selected main melody only; multi-track vocal/accompaniment scores will come later.",
+        "Legend: 0=休止, -=延音, 下划线=八分音符, 双下划线=十六分音符, 数字上/下点=高/低八度",
+        "Note: 当前输出为自动识别的单声部主旋律，复杂混音仍可能需要人工校正。",
     ]
     if display_offset > 0:
-        lines.append(f"Melody entry: {display_offset:.2f}s in original audio; detailed draft starts there.")
-    lines.extend([
-        "",
-        "Melody outline (pitch only, repeated notes collapsed):",
-    ])
-    lines.extend(_wrap_outline(_melody_outline(display_notes, key_tonic)))
-    lines.extend([
-        "",
-        "Detailed rhythm draft:",
-    ])
-    lines.extend(_wrap_tokens(tokens))
+        lines.append(f"Melody entry: {display_offset:.2f}s in original audio; notation starts there.")
+
+    lines.extend(
+        [
+            "",
+            "标准简谱：",
+        ]
+    )
+    lines.extend(measures)
     lines.append("")
     return "\n".join(lines)
+
+
+def _measure_beats(meter: str) -> Fraction:
+    try:
+        numerator_text, denominator_text = meter.split("/", 1)
+        numerator = int(numerator_text)
+        denominator = int(denominator_text)
+    except (AttributeError, ValueError):
+        return Fraction(4, 1)
+    if numerator <= 0 or denominator <= 0:
+        return Fraction(4, 1)
+    return Fraction(numerator * 4, denominator)
 
 
 def _display_offset_seconds(notes: tuple[NoteEvent, ...], beat_seconds: float, source_kind: str = "mixed") -> float:
@@ -145,47 +170,116 @@ def _shift_notes(notes: tuple[NoteEvent, ...], offset: float) -> tuple[NoteEvent
 def _melody_events_with_rests(
     notes: tuple[NoteEvent, ...],
     beat_seconds: float,
-) -> list[NoteEvent]:
-    events: list[NoteEvent] = []
-    cursor = 0.0
-    rest_threshold = beat_seconds
-    for note in sorted(notes, key=lambda item: item.start):
-        if note.start - cursor >= rest_threshold:
-            events.append(NoteEvent(pitch=-1, start=cursor, end=note.start, velocity=0))
-        events.append(note)
-        cursor = max(cursor, note.end)
+) -> list[_JianpuEvent]:
+    events: list[_JianpuEvent] = []
+    cursor = Fraction(0, 1)
+    for note in sorted(notes, key=lambda item: (item.start, item.pitch)):
+        if note.end <= note.start:
+            continue
+
+        start = _seconds_to_beats(note.start, beat_seconds)
+        end = _seconds_to_beats(note.end, beat_seconds)
+        if end <= start:
+            end = start + _SMALLEST_BEAT
+        if start < cursor:
+            if end <= cursor:
+                continue
+            start = cursor
+
+        gap = start - cursor
+        if gap >= _SMALLEST_BEAT:
+            events.append(_JianpuEvent(pitch=-1, duration_beats=gap))
+
+        duration = max(_SMALLEST_BEAT, end - start)
+        events.append(_JianpuEvent(pitch=note.pitch, duration_beats=duration))
+        cursor = start + duration
     return events
 
 
-def _melody_outline(notes: tuple[NoteEvent, ...], key_tonic: str) -> list[str]:
-    outline: list[str] = []
-    last_token: str | None = None
-    for note in sorted(notes, key=lambda item: item.start):
-        token = _pitch_to_jianpu(note.pitch, key_tonic)
-        if token == last_token:
-            continue
-        outline.append(token)
-        last_token = token
-    return outline
+def _seconds_to_beats(seconds: float, beat_seconds: float) -> Fraction:
+    if beat_seconds <= 0:
+        return Fraction(0, 1)
+    units = round((seconds / beat_seconds) * _UNITS_PER_BEAT)
+    return Fraction(max(0, units), _UNITS_PER_BEAT)
 
 
-def _wrap_outline(tokens: list[str], per_line: int = 24) -> list[str]:
-    if not tokens:
-        return ["(no melody detected)"]
-    return [
-        " ".join(tokens[index : index + per_line])
-        for index in range(0, len(tokens), per_line)
-    ]
+def _render_measures(
+    events: list[_JianpuEvent],
+    key_tonic: str,
+    measure_beats: Fraction,
+    measures_per_line: int = 2,
+) -> list[str]:
+    if not events:
+        return ["| (no melody detected) ||"]
+
+    measures: list[list[str]] = [[]]
+    position = Fraction(0, 1)
+    for event in events:
+        remaining = event.duration_beats
+        continuation = False
+        while remaining > 0:
+            if position >= measure_beats:
+                measures.append([])
+                position = Fraction(0, 1)
+
+            room = measure_beats - position
+            segment = min(remaining, room)
+            base = _event_base_token(event.pitch, key_tonic, continuation)
+            measures[-1].extend(_duration_tokens(base, segment))
+            position += segment
+            remaining -= segment
+            continuation = True
+
+            if position >= measure_beats and remaining > 0:
+                measures.append([])
+                position = Fraction(0, 1)
+
+    while len(measures) > 1 and not measures[-1]:
+        measures.pop()
+
+    lines: list[str] = []
+    for index in range(0, len(measures), measures_per_line):
+        group = measures[index : index + measures_per_line]
+        rendered_measures = [" ".join(measure).strip() for measure in group]
+        is_last_group = index + measures_per_line >= len(measures)
+        ending = " ||" if is_last_group else " |"
+        lines.append("| " + " | ".join(rendered_measures) + ending)
+    return lines
 
 
-def _format_event(event: NoteEvent, key_tonic: str, beat_seconds: float) -> tuple[str, float]:
-    duration_beats = max(0.25, (event.end - event.start) / beat_seconds)
-    if event.pitch < 0:
-        return f"0{_duration_suffix(duration_beats)}", _quantize_beats(duration_beats)
-    return (
-        f"{_pitch_to_jianpu(event.pitch, key_tonic)}{_duration_suffix(duration_beats)}",
-        _quantize_beats(duration_beats),
-    )
+def _event_base_token(pitch: int, key_tonic: str, continuation: bool) -> str:
+    if pitch < 0:
+        return "0" if not continuation else "-"
+    if continuation:
+        return "-"
+    return _pitch_to_jianpu(pitch, key_tonic)
+
+
+def _duration_tokens(base: str, duration: Fraction) -> list[str]:
+    if duration <= 0:
+        return []
+    if duration in {Fraction(1, 4), Fraction(1, 2), Fraction(3, 4), Fraction(1, 1), Fraction(3, 2)}:
+        return [_mark_duration(base, duration)]
+
+    tokens = [_mark_duration(base, min(duration, Fraction(1, 1)))]
+    remaining = duration - min(duration, Fraction(1, 1))
+    while remaining > 0:
+        piece = min(remaining, Fraction(1, 1))
+        tokens.append(_mark_duration("-", piece))
+        remaining -= piece
+    return tokens
+
+
+def _mark_duration(base: str, duration: Fraction) -> str:
+    if duration == Fraction(1, 4):
+        return base + _DOUBLE_UNDERLINE
+    if duration == Fraction(1, 2):
+        return base + _UNDERLINE
+    if duration == Fraction(3, 4):
+        return base + _UNDERLINE + "."
+    if duration == Fraction(3, 2):
+        return base + "."
+    return base
 
 
 def _pitch_to_jianpu(pitch: int, key_tonic: str) -> str:
@@ -202,63 +296,10 @@ def _pitch_to_jianpu(pitch: int, key_tonic: str) -> str:
         degree = "?"
 
     if octave > 0:
-        return degree + ("'" * octave)
+        return degree + (_DOT_ABOVE * octave)
     if octave < 0:
-        return degree + ("," * abs(octave))
+        return degree + (_DOT_BELOW * abs(octave))
     return degree
-
-
-def _duration_suffix(duration_beats: float) -> str:
-    quantized = _quantize_beats(duration_beats)
-    if quantized <= 0.25:
-        return "//"
-    if math.isclose(quantized, 0.5):
-        return "/"
-    if math.isclose(quantized, 0.75):
-        return "/."
-    if math.isclose(quantized, 1.0):
-        return ""
-
-    holds: list[str] = []
-    remaining = quantized - 1.0
-    while remaining >= 0.999:
-        holds.append("-")
-        remaining -= 1.0
-    if remaining >= 0.74:
-        holds.append("-/.")
-    elif remaining >= 0.49:
-        holds.append("-/")
-    elif remaining >= 0.24:
-        holds.append("-//")
-    return " " + " ".join(holds) if holds else ""
-
-
-def _quantize_beats(duration_beats: float) -> float:
-    return max(0.25, round(float(Fraction(duration_beats).limit_denominator(4)) * 4) / 4)
-
-
-def _wrap_tokens(tokens: list[tuple[str, float]], measures_per_line: int = 4) -> list[str]:
-    if not tokens:
-        return ["(no melody detected)"]
-
-    lines: list[str] = []
-    current: list[str] = []
-    measure_beats = 0.0
-    measure_count = 0
-    for token, duration_beats in tokens:
-        current.append(token)
-        measure_beats += duration_beats
-        if measure_beats >= 3.99:
-            current.append("|")
-            measure_beats = 0.0
-            measure_count += 1
-        if measure_count >= measures_per_line:
-            lines.append(" ".join(current).rstrip())
-            current = []
-            measure_count = 0
-    if current:
-        lines.append(" ".join(current).rstrip())
-    return lines
 
 
 _TONIC_TO_PC = {

@@ -31,7 +31,7 @@ class AudioPreprocessor:
 
     ffmpeg_binary: str | None = None
     compressed_sample_rate: int = 22050
-    max_duration_seconds: float | None = 60.0
+    max_duration_seconds: float | None = None
 
     def prepare(self, input_path: Path) -> PreparedAudio:
         """Validate and decode an audio file into normalized mono samples."""

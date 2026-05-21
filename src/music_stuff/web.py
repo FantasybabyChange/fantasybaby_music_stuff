@@ -470,6 +470,7 @@ def render_page(
       const status = document.getElementById("melody-player-status");
       let audioContext = null;
       let scheduled = [];
+      let activeMaster = null;
       let stopTimer = null;
 
       const clearScheduled = () => {{
@@ -477,6 +478,10 @@ def render_page(
           try {{ node.stop(); }} catch (_error) {{}}
         }});
         scheduled = [];
+        if (activeMaster) {{
+          try {{ activeMaster.disconnect(); }} catch (_error) {{}}
+          activeMaster = null;
+        }}
         if (stopTimer) {{
           clearTimeout(stopTimer);
           stopTimer = null;
@@ -489,6 +494,70 @@ def render_page(
 
       const pitchToFrequency = (pitch) => 440 * Math.pow(2, (pitch - 69) / 12);
 
+      const scheduleTone = (note, start, duration, master) => {{
+        const frequency = pitchToFrequency(note.pitch);
+        const voice = audioContext.createGain();
+        const toneFilter = audioContext.createBiquadFilter();
+        toneFilter.type = "lowpass";
+        toneFilter.frequency.setValueAtTime(Math.min(6200, frequency * 8), start);
+        toneFilter.Q.setValueAtTime(0.7, start);
+        voice.gain.setValueAtTime(0.0001, start);
+        voice.gain.exponentialRampToValueAtTime(0.62, start + 0.018);
+        voice.gain.linearRampToValueAtTime(0.48, start + Math.min(0.16, duration * 0.45));
+        voice.gain.setTargetAtTime(0.0001, start + Math.max(0.04, duration - 0.08), 0.045);
+        voice.connect(toneFilter).connect(master);
+
+        const vibrato = audioContext.createOscillator();
+        const vibratoDepth = audioContext.createGain();
+        vibrato.type = "sine";
+        vibrato.frequency.setValueAtTime(5.2, start);
+        vibratoDepth.gain.setValueAtTime(Math.min(3.0, frequency * 0.004), start);
+        vibrato.connect(vibratoDepth);
+
+        [
+          ["triangle", 1.0, 0.74],
+          ["sine", 2.01, 0.18],
+          ["sine", 3.0, 0.08],
+        ].forEach(([type, ratio, level]) => {{
+          const oscillator = audioContext.createOscillator();
+          const partialGain = audioContext.createGain();
+          oscillator.type = type;
+          oscillator.frequency.setValueAtTime(frequency * ratio, start);
+          partialGain.gain.setValueAtTime(level, start);
+          vibratoDepth.connect(oscillator.frequency);
+          oscillator.connect(partialGain).connect(voice);
+          oscillator.start(start);
+          oscillator.stop(start + duration + 0.12);
+          scheduled.push(oscillator);
+        }});
+
+        if (duration >= 0.12) {{
+          const noise = audioContext.createBufferSource();
+          const noiseGain = audioContext.createGain();
+          const noiseFilter = audioContext.createBiquadFilter();
+          const sampleCount = Math.max(1, Math.floor(audioContext.sampleRate * 0.035));
+          const buffer = audioContext.createBuffer(1, sampleCount, audioContext.sampleRate);
+          const channel = buffer.getChannelData(0);
+          for (let index = 0; index < sampleCount; index += 1) {{
+            channel[index] = (Math.random() * 2 - 1) * Math.pow(1 - index / sampleCount, 2);
+          }}
+          noise.buffer = buffer;
+          noiseFilter.type = "bandpass";
+          noiseFilter.frequency.setValueAtTime(Math.min(4600, frequency * 6), start);
+          noiseFilter.Q.setValueAtTime(1.2, start);
+          noiseGain.gain.setValueAtTime(0.025, start);
+          noiseGain.gain.exponentialRampToValueAtTime(0.0001, start + 0.045);
+          noise.connect(noiseFilter).connect(noiseGain).connect(master);
+          noise.start(start);
+          noise.stop(start + 0.055);
+          scheduled.push(noise);
+        }}
+
+        vibrato.start(start);
+        vibrato.stop(start + duration + 0.12);
+        scheduled.push(vibrato);
+      }};
+
       const playMelody = async (restart = true) => {{
         if (!playerData.notes.length) {{
           setStatus("\\u6ca1\\u6709\\u53ef\\u64ad\\u653e\\u7684\\u65cb\\u5f8b");
@@ -500,29 +569,30 @@ def render_page(
         const now = audioContext.currentTime + 0.08;
         const firstStart = restart ? playerData.notes[0].start : 0;
         const master = audioContext.createGain();
-        master.gain.value = 0.12;
-        master.connect(audioContext.destination);
+        const compressor = audioContext.createDynamicsCompressor();
+        master.gain.value = 0.16;
+        compressor.threshold.value = -22;
+        compressor.knee.value = 24;
+        compressor.ratio.value = 3;
+        compressor.attack.value = 0.006;
+        compressor.release.value = 0.18;
+        master.connect(compressor).connect(audioContext.destination);
+        activeMaster = master;
 
         playerData.notes.forEach((note) => {{
           const start = now + Math.max(0, note.start - firstStart);
           const duration = Math.max(0.08, note.end - note.start);
-          const oscillator = audioContext.createOscillator();
-          const envelope = audioContext.createGain();
-          oscillator.type = "sine";
-          oscillator.frequency.value = pitchToFrequency(note.pitch);
-          envelope.gain.setValueAtTime(0.0001, start);
-          envelope.gain.exponentialRampToValueAtTime(0.9, start + 0.02);
-          envelope.gain.exponentialRampToValueAtTime(0.0001, start + duration);
-          oscillator.connect(envelope).connect(master);
-          oscillator.start(start);
-          oscillator.stop(start + duration + 0.03);
-          scheduled.push(oscillator);
+          scheduleTone(note, start, duration, master);
         }});
 
         const totalMs = Math.max(200, (playerData.durationSeconds - firstStart) * 1000 + 180);
         setStatus("\\u6b63\\u5728\\u64ad\\u653e " + playerData.noteCount + " \\u4e2a\\u97f3");
         stopTimer = setTimeout(() => {{
           scheduled = [];
+          if (activeMaster) {{
+            try {{ activeMaster.disconnect(); }} catch (_error) {{}}
+            activeMaster = null;
+          }}
           setStatus("\\u64ad\\u653e\\u5b8c\\u6210");
         }}, totalMs);
       }};

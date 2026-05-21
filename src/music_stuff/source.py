@@ -57,9 +57,14 @@ class DemucsSourceSeparator:
     """
 
     enabled: bool = True
-    model_name: str = "htdemucs"
+    model_name: str = "htdemucs_ft"
     timeout_seconds: int = 900
-    max_duration_seconds: float | None = 60.0
+    max_duration_seconds: float | None = None
+    shifts: int = 4
+    overlap: float = 0.5
+    split: bool = True
+    num_workers: int = 0
+    device: str = "auto"
 
     def separate(self, input_path: Path, output_dir: Path) -> SourceSeparationResult:
         if not self.enabled:
@@ -78,11 +83,22 @@ class DemucsSourceSeparator:
         output_dir.mkdir(parents=True, exist_ok=True)
         try:
             demucs_input = self._prepare_demucs_input(input_path, output_dir)
+        except subprocess.TimeoutExpired as exc:
+            detail = f"ffmpeg timed out after {exc.timeout}s while preparing audio for Demucs."
+            LOGGER.warning("%s", detail)
+            return SourceSeparationResult(backend="demucs", status="failed", message=detail)
         except subprocess.CalledProcessError as exc:
             detail = (exc.stderr or exc.stdout or "").strip()
             LOGGER.warning("Could not prepare audio for Demucs: %s", detail)
             return SourceSeparationResult(backend="demucs", status="failed", message=detail or str(exc))
-        LOGGER.info("Separating audio sources with Demucs: input=%s output=%s", demucs_input, output_dir)
+        LOGGER.info(
+            "Separating audio sources with Demucs: input=%s output=%s model=%s shifts=%s overlap=%.2f",
+            demucs_input,
+            output_dir,
+            self.model_name,
+            self.shifts,
+            self.overlap,
+        )
         try:
             self._separate_with_model(demucs_input, output_dir)
         except Exception as exc:
@@ -141,6 +157,7 @@ class DemucsSourceSeparator:
         if ffmpeg is None:
             return input_path
 
+        output_dir.mkdir(parents=True, exist_ok=True)
         converted_path = output_dir / "demucs_input.wav"
         command = [
             ffmpeg,
@@ -160,7 +177,7 @@ class DemucsSourceSeparator:
             str(converted_path),
         ])
         LOGGER.info("Converting audio for Demucs: input=%s output=%s", input_path, converted_path)
-        subprocess.run(command, capture_output=True, text=True, check=True)
+        subprocess.run(command, capture_output=True, text=True, check=True, timeout=self.timeout_seconds)
         return converted_path
 
     def _separate_with_model(self, input_path: Path, output_dir: Path) -> None:
@@ -170,7 +187,13 @@ class DemucsSourceSeparator:
         from demucs.pretrained import get_model
 
         model = get_model(self.model_name)
-        model.cpu()
+        device = self._resolve_torch_device(torch)
+        LOGGER.info(
+            "Running Demucs model on device=%s cuda_available=%s",
+            device,
+            torch.cuda.is_available(),
+        )
+        model.to(device)
         model.eval()
 
         wav, sample_rate = self._load_wav_tensor(input_path)
@@ -182,19 +205,19 @@ class DemucsSourceSeparator:
         ref = wav.mean(0)
         center = ref.mean()
         scale = ref.std().clamp_min(1e-8)
-        normalized = (wav - center) / scale
+        normalized = ((wav - center) / scale).to(device)
         with torch.no_grad():
             sources = apply_model(
                 model,
                 normalized[None],
-                device="cpu",
-                shifts=1,
-                split=True,
-                overlap=0.25,
+                device=device,
+                shifts=max(1, self.shifts),
+                split=self.split,
+                overlap=self.overlap,
                 progress=False,
-                num_workers=0,
+                num_workers=self.num_workers,
             )[0]
-        sources = sources * scale + center
+        sources = sources.cpu() * scale + center
 
         sources_by_name = dict(zip(model.sources, sources))
         vocals = sources_by_name.get("vocals")
@@ -208,8 +231,14 @@ class DemucsSourceSeparator:
 
         stem_dir = output_dir / self.model_name / input_path.stem
         stem_dir.mkdir(parents=True, exist_ok=True)
-        self._save_wav_tensor(vocals, stem_dir / "vocals.wav", model.samplerate, np)
+        for source_name, source_audio in sources_by_name.items():
+            self._save_wav_tensor(source_audio, stem_dir / f"{source_name}.wav", model.samplerate, np)
         self._save_wav_tensor(no_vocals, stem_dir / "no_vocals.wav", model.samplerate, np)
+
+    def _resolve_torch_device(self, torch) -> str:
+        if self.device != "auto":
+            return self.device
+        return "cuda" if torch.cuda.is_available() else "cpu"
 
     def _load_wav_tensor(self, input_path: Path):
         import numpy as np

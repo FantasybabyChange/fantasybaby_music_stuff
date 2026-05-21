@@ -53,5 +53,22 @@ def test_quantize_uses_real_tempo_and_beat_offset():
     assert quantized.notes[1].end == 1.3
 
 
+def test_quantize_merges_fragmented_repeated_notes():
+    melody = Melody(
+        notes=(
+            NoteEvent(pitch=60, start=0.01, end=0.24),
+            NoteEvent(pitch=60, start=0.26, end=0.51),
+        ),
+        source="demo.wav",
+    )
+    rhythm = RhythmEstimate(tempo_bpm=120.0, beat_offset=0.0, meter="4/4")
+
+    quantized = RhythmQuantizer().quantize(melody, rhythm)
+
+    assert len(quantized.notes) == 1
+    assert quantized.notes[0].start == 0.0
+    assert quantized.notes[0].end == 0.5
+
+
 def test_normalize_tempo_halves_likely_double_time():
     assert RhythmQuantizer()._normalize_tempo_range(172.0) == 86.0
