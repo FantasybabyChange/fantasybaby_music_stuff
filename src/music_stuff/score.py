@@ -55,7 +55,9 @@ def format_jianpu(melody: Melody, analysis: AnalysisResult) -> str:
     meter = analysis.meter or "4/4"
     key_tonic = analysis.key.tonic if analysis.key else "C"
     beat_seconds = 60.0 / tempo_bpm
-    events = _melody_events_with_rests(melody.notes, beat_seconds)
+    display_offset = _display_offset_seconds(melody.notes, beat_seconds, melody.source_kind)
+    display_notes = _shift_notes(melody.notes, display_offset)
+    events = _melody_events_with_rests(display_notes, beat_seconds)
     tokens = [_format_event(event, key_tonic, beat_seconds) for event in events]
 
     lines = [
@@ -67,10 +69,14 @@ def format_jianpu(melody: Melody, analysis: AnalysisResult) -> str:
         f"Meter: {meter}",
         "Legend: 1-7=scale degrees, #/b=accidentals, '=higher octave, ,=lower octave, /=short, -=hold, 0=rest",
         "Note: This exports one selected main melody only; multi-track vocal/accompaniment scores will come later.",
+    ]
+    if display_offset > 0:
+        lines.append(f"Melody entry: {display_offset:.2f}s in original audio; detailed draft starts there.")
+    lines.extend([
         "",
         "Melody outline (pitch only, repeated notes collapsed):",
-    ]
-    lines.extend(_wrap_outline(_melody_outline(melody.notes, key_tonic)))
+    ])
+    lines.extend(_wrap_outline(_melody_outline(display_notes, key_tonic)))
     lines.extend([
         "",
         "Detailed rhythm draft:",
@@ -78,6 +84,62 @@ def format_jianpu(melody: Melody, analysis: AnalysisResult) -> str:
     lines.extend(_wrap_tokens(tokens))
     lines.append("")
     return "\n".join(lines)
+
+
+def _display_offset_seconds(notes: tuple[NoteEvent, ...], beat_seconds: float, source_kind: str = "mixed") -> float:
+    if not notes:
+        return 0.0
+    first_start = min(note.start for note in notes)
+    trim_threshold = beat_seconds * 8
+    if first_start >= trim_threshold:
+        return first_start
+    if source_kind != "human_voice":
+        return 0.0
+
+    phrases = _melody_phrases(notes, gap_seconds=max(2.5, beat_seconds * 4))
+    if len(phrases) < 2 or phrases[0][0].start <= beat_seconds * 2:
+        return 0.0
+
+    scored = [(phrase, _phrase_score(phrase)) for phrase in phrases]
+    best_phrase, best_score = max(scored, key=lambda item: item[1])
+    early_best = max((score for phrase, score in scored if phrase[0].start < best_phrase[0].start), default=0.0)
+    if best_phrase[0].start >= trim_threshold and early_best < best_score * 0.8:
+        return best_phrase[0].start
+    return 0.0
+
+
+def _melody_phrases(notes: tuple[NoteEvent, ...], gap_seconds: float) -> list[list[NoteEvent]]:
+    phrases: list[list[NoteEvent]] = []
+    current: list[NoteEvent] = []
+    last_end: float | None = None
+    for note in sorted(notes, key=lambda item: item.start):
+        if current and last_end is not None and note.start - last_end > gap_seconds:
+            phrases.append(current)
+            current = []
+        current.append(note)
+        last_end = max(last_end or note.end, note.end)
+    if current:
+        phrases.append(current)
+    return phrases
+
+
+def _phrase_score(phrase: list[NoteEvent]) -> float:
+    voiced_duration = math.fsum(max(0.0, note.end - note.start) for note in phrase)
+    return voiced_duration + len(phrase) * 0.15
+
+
+def _shift_notes(notes: tuple[NoteEvent, ...], offset: float) -> tuple[NoteEvent, ...]:
+    if offset <= 0:
+        return notes
+    return tuple(
+        NoteEvent(
+            pitch=note.pitch,
+            start=max(0.0, note.start - offset),
+            end=max(0.0, note.end - offset),
+            velocity=note.velocity,
+        )
+        for note in notes
+    )
 
 
 def _melody_events_with_rests(
