@@ -8,3 +8,27 @@ dist/
 build/
 *.egg-info/
 output/
+
+# Local media, analysis artifacts, and model weights should stay out of git.
+artifacts/
+data/raw/
+data/processed/
+models/
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.ogg
+*.aiff
+*.aif
+*.pt
+*.pth
+*.onnx
+*.ckpt
+*.safetensors
+*.h5
+*.pb
+*.zip
+*.tar
+*.tar.gz
+*.7z

@@ -26,6 +26,22 @@ uv run music-stuff --help
 uv run music-stuff ui
 ```
 
+## 快速拉取
+
+国内网络下如果 SSH 拉取较慢，可以优先使用 HTTPS 克隆：
+
+```bash
+git clone https://github.com/FantasybabyChange/fantasybaby_music_stuff.git
+```
+
+只需要最新代码时，可以浅克隆：
+
+```bash
+git clone --depth=1 https://github.com/FantasybabyChange/fantasybaby_music_stuff.git
+```
+
+本项目不要提交本地音频、分析产物和模型权重。大文件应放在外部存储，或后续单独设计数据下载流程。
+
 ## 高质量人声分离
 
 人声/伴奏分离使用可选的 Demucs 后端。安装方式：
