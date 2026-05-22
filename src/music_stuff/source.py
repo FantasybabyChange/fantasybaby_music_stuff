@@ -301,4 +301,4 @@ def build_demucs_separator(compute_mode: str | None = None) -> DemucsSourceSepar
         return DemucsSourceSeparator(device="cpu", shifts=1, overlap=0.25)
     if mode == COMPUTE_MODE_AUTO:
         return DemucsSourceSeparator(device="auto", shifts=4, overlap=0.5)
-    return DemucsSourceSeparator(device="auto", shifts=2, overlap=0.25)
+    return DemucsSourceSeparator(device="auto", shifts=3, overlap=0.35)

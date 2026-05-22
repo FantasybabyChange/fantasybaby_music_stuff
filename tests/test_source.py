@@ -78,8 +78,8 @@ def test_build_demucs_separator_uses_compute_profiles():
     auto = build_demucs_separator("auto")
 
     assert balanced.device == "auto"
-    assert balanced.shifts == 2
-    assert balanced.overlap == 0.25
+    assert balanced.shifts == 3
+    assert balanced.overlap == 0.35
     assert gpu.device == "cuda"
     assert gpu.shifts == 4
     assert cpu.device == "cpu"
@@ -90,7 +90,7 @@ def test_build_demucs_separator_uses_compute_profiles():
 
 def test_unknown_compute_mode_falls_back_to_balanced():
     assert normalize_compute_mode("surprise") == "balanced"
-    assert build_demucs_separator("surprise").shifts == 2
+    assert build_demucs_separator("surprise").shifts == 3
 
 
 def test_demucs_prepare_input_uses_timeout(tmp_path, monkeypatch):
