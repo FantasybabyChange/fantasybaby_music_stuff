@@ -14,6 +14,20 @@ import wave
 
 LOGGER = logging.getLogger(__name__)
 
+COMPUTE_MODE_AUTO = "auto"
+COMPUTE_MODE_GPU = "gpu"
+COMPUTE_MODE_CPU = "cpu"
+COMPUTE_MODE_BALANCED = "balanced"
+DEFAULT_COMPUTE_MODE = COMPUTE_MODE_BALANCED
+SUPPORTED_COMPUTE_MODES = frozenset(
+    {
+        COMPUTE_MODE_AUTO,
+        COMPUTE_MODE_GPU,
+        COMPUTE_MODE_CPU,
+        COMPUTE_MODE_BALANCED,
+    }
+)
+
 HUMAN_VOICE = "human_voice"
 ACCOMPANIMENT = "accompaniment"
 MIXED = "mixed"
@@ -236,6 +250,8 @@ class DemucsSourceSeparator:
         self._save_wav_tensor(no_vocals, stem_dir / "no_vocals.wav", model.samplerate, np)
 
     def _resolve_torch_device(self, torch) -> str:
+        if self.device == "cuda" and not torch.cuda.is_available():
+            raise ValueError("CUDA was requested, but PyTorch cannot see an available GPU.")
         if self.device != "auto":
             return self.device
         return "cuda" if torch.cuda.is_available() else "cpu"
@@ -264,3 +280,25 @@ class DemucsSourceSeparator:
             wav_file.setsampwidth(2)
             wav_file.setframerate(sample_rate)
             wav_file.writeframes(pcm.tobytes())
+
+
+def normalize_compute_mode(value: str | None) -> str:
+    """Return a supported compute mode, falling back to the UI-safe default."""
+
+    mode = str(value or "").strip().lower()
+    if mode in SUPPORTED_COMPUTE_MODES:
+        return mode
+    return DEFAULT_COMPUTE_MODE
+
+
+def build_demucs_separator(compute_mode: str | None = None) -> DemucsSourceSeparator:
+    """Build a Demucs separator for the selected compute profile."""
+
+    mode = normalize_compute_mode(compute_mode)
+    if mode == COMPUTE_MODE_GPU:
+        return DemucsSourceSeparator(device="cuda", shifts=4, overlap=0.5)
+    if mode == COMPUTE_MODE_CPU:
+        return DemucsSourceSeparator(device="cpu", shifts=1, overlap=0.25)
+    if mode == COMPUTE_MODE_AUTO:
+        return DemucsSourceSeparator(device="auto", shifts=4, overlap=0.5)
+    return DemucsSourceSeparator(device="auto", shifts=2, overlap=0.25)

@@ -1,8 +1,12 @@
 from music_stuff.models import AnalysisResult, Melody, NoteEvent
 import json
+import pytest
 
 from music_stuff.web import (
+    FANTASYBABY_LOGO_HREF,
+    FANTASYBABY_VIDEO_HREF,
     RunSummary,
+    _ensure_compute_mode_available,
     _list_run_summaries,
     _loaded_player_payload,
     _melody_player_payload,
@@ -15,6 +19,12 @@ def test_render_page_contains_upload_workbench():
     page = render_page()
 
     assert "Music Stuff" in page
+    assert "FantasyBaby" in page
+    assert FANTASYBABY_LOGO_HREF in page
+    assert FANTASYBABY_VIDEO_HREF in page
+    assert "<video" in page
+    assert "autoplay muted loop playsinline" in page
+    assert "brand-art" in page
     assert "audio-file" in page
     assert "upload-form" in page
     assert "WAV" in page
@@ -22,6 +32,22 @@ def test_render_page_contains_upload_workbench():
     assert "FLAC" in page
     assert "preview" in page
     assert "history" in page
+    assert "compute-mode-balanced" in page
+    assert 'name="compute_mode"' in page
+    assert 'value="balanced" checked' in page
+
+
+def test_render_page_preserves_selected_compute_mode():
+    page = render_page(compute_mode="cpu")
+
+    assert 'id="compute-mode-cpu" type="radio" name="compute_mode" value="cpu" checked' in page
+
+
+def test_gpu_compute_mode_requires_torch(monkeypatch):
+    monkeypatch.setattr("music_stuff.web.importlib.util.find_spec", lambda _name: None)
+
+    with pytest.raises(ValueError, match="GPU"):
+        _ensure_compute_mode_available("gpu")
 
 
 def test_render_page_includes_history_runs():

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import html
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import importlib.util
 import json
 import logging
 import mimetypes
@@ -18,12 +19,36 @@ import webbrowser
 
 from music_stuff.models import AnalysisResult, Melody, NoteEvent
 from music_stuff.pipeline import MusicTranscriptionPipeline
+from music_stuff.source import (
+    COMPUTE_MODE_AUTO,
+    COMPUTE_MODE_BALANCED,
+    COMPUTE_MODE_CPU,
+    COMPUTE_MODE_GPU,
+    DEFAULT_COMPUTE_MODE,
+    build_demucs_separator,
+    normalize_compute_mode,
+)
 
 
 SUPPORTED_UPLOAD_SUFFIXES = {".wav", ".mp3", ".flac"}
 PLAYER_ARTIFACT_NAME = "melody.player.json"
 DOWNLOADABLE_ARTIFACTS = {"melody.jianpu.txt", "analysis.json", PLAYER_ARTIFACT_NAME}
 LOGGER = logging.getLogger(__name__)
+ASSETS_DIR = Path(__file__).with_name("assets")
+FANTASYBABY_LOGO_NAME = "fantasybaby-logo.jpg"
+FANTASYBABY_LOGO_HREF = f"/assets/{FANTASYBABY_LOGO_NAME}"
+FANTASYBABY_VIDEO_NAME = "fantasybaby-brand-video.mp4"
+FANTASYBABY_VIDEO_HREF = f"/assets/{FANTASYBABY_VIDEO_NAME}"
+STATIC_ASSETS = {
+    FANTASYBABY_LOGO_NAME: ASSETS_DIR / FANTASYBABY_LOGO_NAME,
+    FANTASYBABY_VIDEO_NAME: ASSETS_DIR / FANTASYBABY_VIDEO_NAME,
+}
+COMPUTE_MODE_OPTIONS = (
+    (COMPUTE_MODE_BALANCED, "均衡", "GPU低负载 + CPU分析"),
+    (COMPUTE_MODE_GPU, "GPU", "高质量"),
+    (COMPUTE_MODE_CPU, "CPU", "不占GPU"),
+    (COMPUTE_MODE_AUTO, "自动", "按设备选择"),
+)
 
 
 @dataclass(frozen=True)
@@ -39,6 +64,7 @@ class UploadedAudio:
     original_name: str
     safe_name: str
     content: bytes
+    compute_mode: str
 
 
 @dataclass(frozen=True)
@@ -70,6 +96,7 @@ def render_page(
     message: str | None = None,
     artifact_path: Path | None = None,
     file_name: str | None = None,
+    compute_mode: str | None = None,
     jianpu_href: str | None = None,
     analysis_href: str | None = None,
     player_payload: dict[str, object] | None = None,
@@ -85,6 +112,7 @@ def render_page(
     )
     history_html = _render_history(history_runs)
     message_html = f'<p class="message">{html.escape(message)}</p>' if message else ""
+    compute_mode_html = _render_compute_mode_options(normalize_compute_mode(compute_mode))
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -116,11 +144,34 @@ def render_page(
       padding: 28px 0 36px;
     }}
     header {{
-      display: flex;
-      align-items: end;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
       justify-content: space-between;
       gap: 20px;
       margin-bottom: 22px;
+    }}
+    .brand {{
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-width: 0;
+    }}
+    .brand-logo {{
+      width: 68px;
+      height: 68px;
+      flex: 0 0 68px;
+      border-radius: 8px;
+      border: 1px solid rgba(23, 32, 26, 0.18);
+      object-fit: cover;
+      box-shadow: 0 10px 24px rgba(35, 45, 38, 0.12);
+    }}
+    .wordmark {{
+      margin-bottom: 4px;
+      color: var(--accent-dark);
+      font-size: 14px;
+      font-weight: 820;
+      line-height: 1.15;
     }}
     h1 {{
       margin: 0;
@@ -133,6 +184,28 @@ def render_page(
       margin: 8px 0 0;
       color: var(--muted);
       font-size: 15px;
+    }}
+    .brand-side {{
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }}
+    .brand-art {{
+      width: 156px;
+      aspect-ratio: 1;
+      margin: 0;
+      overflow: hidden;
+      border-radius: 8px;
+      border: 1px solid rgba(23, 32, 26, 0.18);
+      background: #111b21;
+      box-shadow: 0 16px 36px rgba(35, 45, 38, 0.16);
+    }}
+    .brand-art img,
+    .brand-art video {{
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
     }}
     .format-list {{
       display: flex;
@@ -223,6 +296,64 @@ def render_page(
       color: var(--accent-dark);
       font-size: 14px;
       word-break: break-word;
+    }}
+    .compute-mode {{
+      border: 0;
+      margin: 0;
+      padding: 0;
+    }}
+    .compute-mode legend {{
+      margin-bottom: 9px;
+      color: var(--ink);
+      font-size: 14px;
+      font-weight: 760;
+    }}
+    .mode-grid {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }}
+    .mode-option {{
+      position: relative;
+      min-width: 0;
+    }}
+    .mode-option input {{
+      position: absolute;
+      inset: 0;
+      margin: 0;
+      opacity: 0;
+      cursor: pointer;
+    }}
+    .mode-card {{
+      display: block;
+      min-height: 64px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfdfb;
+      color: var(--ink);
+    }}
+    .mode-option input:checked + .mode-card {{
+      border-color: var(--accent);
+      background: var(--soft);
+      box-shadow: inset 0 0 0 1px rgba(31, 122, 99, 0.28);
+    }}
+    .mode-option input:focus-visible + .mode-card {{
+      outline: 2px solid rgba(31, 122, 99, 0.45);
+      outline-offset: 2px;
+    }}
+    .mode-title {{
+      display: block;
+      font-size: 14px;
+      font-weight: 760;
+      line-height: 1.25;
+    }}
+    .mode-meta {{
+      display: block;
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
     }}
     button {{
       width: 100%;
@@ -440,7 +571,23 @@ def render_page(
     @media (max-width: 860px) {{
       header {{
         align-items: start;
+        grid-template-columns: 1fr;
+      }}
+      .brand {{
+        align-items: flex-start;
+      }}
+      .brand-logo {{
+        width: 58px;
+        height: 58px;
+        flex-basis: 58px;
+      }}
+      .brand-side {{
+        width: 100%;
+        align-items: flex-start;
         flex-direction: column;
+      }}
+      .brand-art {{
+        width: min(100%, 240px);
       }}
       .format-list {{
         justify-content: flex-start;
@@ -466,12 +613,21 @@ def render_page(
 <body>
   <div class="shell">
     <header>
-      <div>
+      <div class="brand">
+        <img class="brand-logo" src="{html.escape(FANTASYBABY_LOGO_HREF)}" alt="FantasyBaby">
+        <div>
+          <div class="wordmark">FantasyBaby</div>
         <h1>&#20027;&#26059;&#24459;&#31616;&#35889;&#25552;&#21462;</h1>
         <p class="subtitle">&#19978;&#20256;&#19968;&#27573;&#28165;&#26224;&#26059;&#24459;&#38899;&#39057;&#65292;&#29983;&#25104;&#21487;&#22797;&#21046;&#30340; numbered notation&#12290;</p>
+        </div>
       </div>
-      <div class="format-list" aria-label="supported formats">
-        <span>WAV</span><span>MP3</span><span>FLAC</span>
+      <div class="brand-side">
+        <figure class="brand-art">
+          <video src="{html.escape(FANTASYBABY_VIDEO_HREF)}" poster="{html.escape(FANTASYBABY_LOGO_HREF)}" autoplay muted loop playsinline aria-label="FantasyBaby"></video>
+        </figure>
+        <div class="format-list" aria-label="supported formats">
+          <span>WAV</span><span>MP3</span><span>FLAC</span>
+        </div>
       </div>
     </header>
     <main>
@@ -485,6 +641,7 @@ def render_page(
         </label>
         <div id="selected" class="selected">&#23578;&#26410;&#36873;&#25321;&#25991;&#20214;</div>
         <audio id="preview" controls></audio>
+        {compute_mode_html}
         {message_html}
         <button id="submit-button" type="submit">&#25552;&#21462;&#20027;&#26059;&#24459;&#24182;&#29983;&#25104;&#31616;&#35889;</button>
         {history_html}
@@ -696,6 +853,9 @@ def _build_handler(output_dir: Path) -> type[BaseHTTPRequestHandler]:
             if parsed.path.startswith("/artifacts/"):
                 self._serve_artifact(parsed.path)
                 return
+            if parsed.path.startswith("/assets/"):
+                self._serve_asset(parsed.path)
+                return
             self.send_error(HTTPStatus.NOT_FOUND)
 
         def do_POST(self) -> None:
@@ -704,22 +864,29 @@ def _build_handler(output_dir: Path) -> type[BaseHTTPRequestHandler]:
             if parsed.path != "/transcribe":
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return
+            selected_compute_mode = DEFAULT_COMPUTE_MODE
             try:
                 upload = self._read_upload()
+                selected_compute_mode = upload.compute_mode
+                _ensure_compute_mode_available(upload.compute_mode)
                 run_id = uuid.uuid4().hex[:12]
                 run_dir = output_root / run_id
                 run_dir.mkdir(parents=True, exist_ok=True)
                 input_path = run_dir / upload.safe_name
                 input_path.write_bytes(upload.content)
                 LOGGER.info(
-                    "Upload received: run_id=%s file=%s bytes=%s saved_as=%s",
+                    "Upload received: run_id=%s file=%s bytes=%s saved_as=%s compute_mode=%s",
                     run_id,
                     upload.original_name,
                     len(upload.content),
                     input_path,
+                    upload.compute_mode,
                 )
 
-                result = MusicTranscriptionPipeline().transcribe(input_path, run_dir)
+                pipeline = MusicTranscriptionPipeline(
+                    source_separator=build_demucs_separator(upload.compute_mode)
+                )
+                result = pipeline.transcribe(input_path, run_dir)
                 result_text = result.jianpu_path.read_text(encoding="utf-8") if result.jianpu_path else ""
                 player_payload = _melody_player_payload(result.melody, result.analysis)
                 (run_dir / PLAYER_ARTIFACT_NAME).write_text(
@@ -731,6 +898,7 @@ def _build_handler(output_dir: Path) -> type[BaseHTTPRequestHandler]:
                         result_text=result_text,
                         artifact_path=result.jianpu_path,
                         file_name=upload.original_name,
+                        compute_mode=upload.compute_mode,
                         jianpu_href=_artifact_href(run_id, "melody.jianpu.txt"),
                         analysis_href=_artifact_href(run_id, "analysis.json"),
                         player_payload=player_payload,
@@ -741,7 +909,11 @@ def _build_handler(output_dir: Path) -> type[BaseHTTPRequestHandler]:
             except Exception as exc:
                 LOGGER.exception("Upload transcription failed")
                 self._send_html(
-                    render_page(message=str(exc), history_runs=_list_run_summaries(output_root)),
+                    render_page(
+                        message=str(exc),
+                        compute_mode=selected_compute_mode,
+                        history_runs=_list_run_summaries(output_root),
+                    ),
                     status=HTTPStatus.BAD_REQUEST,
                 )
 
@@ -824,6 +996,27 @@ def _build_handler(output_dir: Path) -> type[BaseHTTPRequestHandler]:
             self.end_headers()
             self.wfile.write(content)
 
+        def _serve_asset(self, request_path: str) -> None:
+            parts = [unquote(part) for part in request_path.split("/") if part]
+            if len(parts) != 2 or parts[0] != "assets":
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+
+            asset_path = STATIC_ASSETS.get(parts[1])
+            if asset_path is None or not asset_path.exists():
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+
+            content = asset_path.read_bytes()
+            content_type = mimetypes.guess_type(asset_path.name)[0] or "application/octet-stream"
+            LOGGER.info("Serving asset: %s bytes=%s", asset_path, len(content))
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(content)))
+            self.send_header("Cache-Control", "public, max-age=3600")
+            self.end_headers()
+            self.wfile.write(content)
+
         def _read_upload(self) -> UploadedAudio:
             form = cgi.FieldStorage(
                 fp=self.rfile,
@@ -837,6 +1030,7 @@ def _build_handler(output_dir: Path) -> type[BaseHTTPRequestHandler]:
             field = form["audio"] if "audio" in form else None
             if field is None or not field.filename:
                 raise ValueError("Please choose an audio file.")
+            compute_mode = normalize_compute_mode(_form_value(form, "compute_mode"))
 
             original_name = Path(field.filename).name
             suffix = Path(original_name).suffix.lower()
@@ -850,9 +1044,29 @@ def _build_handler(output_dir: Path) -> type[BaseHTTPRequestHandler]:
                 original_name=original_name,
                 safe_name=_safe_filename(original_name),
                 content=content,
+                compute_mode=compute_mode,
             )
 
     return MusicStuffHandler
+
+
+def _render_compute_mode_options(selected_mode: str) -> str:
+    options: list[str] = []
+    for mode, title, meta in COMPUTE_MODE_OPTIONS:
+        checked = " checked" if mode == selected_mode else ""
+        options.append(
+            f"""<label class="mode-option" for="compute-mode-{html.escape(mode)}">
+              <input id="compute-mode-{html.escape(mode)}" type="radio" name="compute_mode" value="{html.escape(mode)}"{checked}>
+              <span class="mode-card">
+                <span class="mode-title">{html.escape(title)}</span>
+                <span class="mode-meta">{html.escape(meta)}</span>
+              </span>
+            </label>"""
+        )
+    return f"""<fieldset class="compute-mode" aria-label="compute mode">
+          <legend>&#35745;&#31639;&#27169;&#24335;</legend>
+          <div class="mode-grid">{"".join(options)}</div>
+        </fieldset>"""
 
 
 def _render_history(history_runs: tuple[RunSummary, ...]) -> str:
@@ -1141,6 +1355,30 @@ def _safe_filename(file_name: str) -> str:
     if not safe_stem:
         safe_stem = "audio"
     return f"{safe_stem}{suffix}"
+
+
+def _form_value(form: cgi.FieldStorage, name: str) -> str | None:
+    if name not in form:
+        return None
+    field = form[name]
+    if isinstance(field, list):
+        field = field[0] if field else None
+    if field is None:
+        return None
+    value = getattr(field, "value", None)
+    return str(value) if value is not None else None
+
+
+def _ensure_compute_mode_available(compute_mode: str) -> None:
+    if normalize_compute_mode(compute_mode) != COMPUTE_MODE_GPU:
+        return
+    if importlib.util.find_spec("torch") is None:
+        raise ValueError("GPU 模式需要安装带 CUDA 支持的 PyTorch。")
+
+    import torch
+
+    if not torch.cuda.is_available():
+        raise ValueError("已选择 GPU 模式，但 PyTorch 当前看不到可用 CUDA 显卡。")
 
 
 def _artifact_href(run_id: str, file_name: str) -> str:

@@ -1,7 +1,11 @@
 from pathlib import Path
 import subprocess
 
-from music_stuff.source import DemucsSourceSeparator
+from music_stuff.source import (
+    DemucsSourceSeparator,
+    build_demucs_separator,
+    normalize_compute_mode,
+)
 
 
 def test_demucs_separator_defaults_to_high_quality_settings():
@@ -48,6 +52,45 @@ def test_demucs_auto_device_prefers_cuda_when_available():
 
     assert DemucsSourceSeparator()._resolve_torch_device(FakeTorch) == "cuda"
     assert DemucsSourceSeparator(device="cpu")._resolve_torch_device(FakeTorch) == "cpu"
+
+
+def test_demucs_explicit_cuda_requires_available_gpu():
+    class FakeCuda:
+        @staticmethod
+        def is_available():
+            return False
+
+    class FakeTorch:
+        cuda = FakeCuda()
+
+    try:
+        DemucsSourceSeparator(device="cuda")._resolve_torch_device(FakeTorch)
+    except ValueError as exc:
+        assert "CUDA was requested" in str(exc)
+    else:
+        raise AssertionError("Expected explicit CUDA mode to fail without an available GPU")
+
+
+def test_build_demucs_separator_uses_compute_profiles():
+    balanced = build_demucs_separator("balanced")
+    gpu = build_demucs_separator("gpu")
+    cpu = build_demucs_separator("cpu")
+    auto = build_demucs_separator("auto")
+
+    assert balanced.device == "auto"
+    assert balanced.shifts == 2
+    assert balanced.overlap == 0.25
+    assert gpu.device == "cuda"
+    assert gpu.shifts == 4
+    assert cpu.device == "cpu"
+    assert cpu.shifts == 1
+    assert auto.device == "auto"
+    assert auto.shifts == 4
+
+
+def test_unknown_compute_mode_falls_back_to_balanced():
+    assert normalize_compute_mode("surprise") == "balanced"
+    assert build_demucs_separator("surprise").shifts == 2
 
 
 def test_demucs_prepare_input_uses_timeout(tmp_path, monkeypatch):
