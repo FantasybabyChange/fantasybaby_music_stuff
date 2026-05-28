@@ -1,0 +1,722 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Music Stuff &#31616;&#35889;&#25552;&#21462;</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17201a;
+      --muted: #5d6a62;
+      --line: #d9ded9;
+      --panel: #ffffff;
+      --accent: #1f7a63;
+      --accent-dark: #145743;
+      --soft: #eef5f1;
+      font-family: Inter, "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background: linear-gradient(180deg, #f7f5ef 0%, #eef3ef 100%);
+    }
+    .shell {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 28px 0 36px;
+    }
+    header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 22px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-width: 0;
+    }
+    .brand-logo {
+      width: 68px;
+      height: 68px;
+      flex: 0 0 68px;
+      border-radius: 8px;
+      border: 1px solid rgba(23, 32, 26, 0.18);
+      object-fit: cover;
+      box-shadow: 0 10px 24px rgba(35, 45, 38, 0.12);
+    }
+    .wordmark {
+      margin-bottom: 4px;
+      color: var(--accent-dark);
+      font-size: 14px;
+      font-weight: 820;
+      line-height: 1.15;
+    }
+    h1 {
+      margin: 0;
+      font-size: 32px;
+      line-height: 1.1;
+      font-weight: 760;
+      letter-spacing: 0;
+    }
+    .subtitle {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 15px;
+    }
+    .brand-side {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand-art {
+      width: 156px;
+      aspect-ratio: 1;
+      margin: 0;
+      overflow: hidden;
+      border-radius: 8px;
+      border: 1px solid rgba(23, 32, 26, 0.18);
+      background: #111b21;
+      box-shadow: 0 16px 36px rgba(35, 45, 38, 0.16);
+    }
+    .brand-art img,
+    .brand-art video {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+    .format-list {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .format-list span {
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.75);
+      border-radius: 999px;
+      padding: 7px 10px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    main {
+      display: grid;
+      grid-template-columns: 360px minmax(0, 1fr);
+      gap: 18px;
+      align-items: stretch;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: 0 16px 40px rgba(35, 45, 38, 0.08);
+    }
+    .upload {
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .dropzone {
+      position: relative;
+      display: grid;
+      place-items: center;
+      min-height: 230px;
+      border: 1px dashed #aeb8af;
+      border-radius: 8px;
+      background:
+        linear-gradient(90deg, rgba(31, 122, 99, 0.09) 1px, transparent 1px) 0 0 / 28px 28px,
+        linear-gradient(180deg, rgba(185, 131, 36, 0.08), rgba(255, 255, 255, 0.82));
+      text-align: center;
+      overflow: hidden;
+    }
+    .dropzone::before {
+      content: "";
+      position: absolute;
+      inset: auto 22px 42px;
+      height: 64px;
+      background:
+        repeating-linear-gradient(0deg, transparent 0 11px, rgba(23, 32, 26, 0.18) 11px 12px),
+        linear-gradient(90deg, transparent, rgba(31, 122, 99, 0.16), transparent);
+      border-radius: 8px;
+      opacity: 0.9;
+    }
+    .dropzone input {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+    .dropcopy {
+      position: relative;
+      z-index: 1;
+      padding: 20px;
+    }
+    .dropcopy strong {
+      display: block;
+      font-size: 20px;
+      margin-bottom: 8px;
+    }
+    .dropcopy span {
+      color: var(--muted);
+      font-size: 14px;
+    }
+    audio {
+      width: 100%;
+      height: 40px;
+      display: none;
+    }
+    audio.is-visible {
+      display: block;
+    }
+    .selected {
+      min-height: 20px;
+      color: var(--accent-dark);
+      font-size: 14px;
+      word-break: break-word;
+    }
+    .compute-mode {
+      border: 0;
+      margin: 0;
+      padding: 0;
+    }
+    .compute-mode legend {
+      margin-bottom: 9px;
+      color: var(--ink);
+      font-size: 14px;
+      font-weight: 760;
+    }
+    .mode-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .mode-option {
+      position: relative;
+      min-width: 0;
+    }
+    .mode-option input {
+      position: absolute;
+      inset: 0;
+      margin: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+    .mode-card {
+      display: block;
+      min-height: 64px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfdfb;
+      color: var(--ink);
+    }
+    .mode-option input:checked + .mode-card {
+      border-color: var(--accent);
+      background: var(--soft);
+      box-shadow: inset 0 0 0 1px rgba(31, 122, 99, 0.28);
+    }
+    .mode-option input:focus-visible + .mode-card {
+      outline: 2px solid rgba(31, 122, 99, 0.45);
+      outline-offset: 2px;
+    }
+    .mode-title {
+      display: block;
+      font-size: 14px;
+      font-weight: 760;
+      line-height: 1.25;
+    }
+    .mode-meta {
+      display: block;
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    button {
+      width: 100%;
+      height: 44px;
+      border: 0;
+      border-radius: 8px;
+      background: var(--accent);
+      color: white;
+      font-weight: 700;
+      font-size: 15px;
+      cursor: pointer;
+    }
+    button:hover { background: var(--accent-dark); }
+    button:disabled {
+      background: #8aa79e;
+      cursor: wait;
+    }
+    .message {
+      margin: 0;
+      padding: 12px 14px;
+      border-radius: 8px;
+      background: #fff6df;
+      color: #6d4a09;
+      border: 1px solid #ead7a8;
+      font-size: 14px;
+    }
+    .history {
+      border-top: 1px solid var(--line);
+      padding-top: 14px;
+    }
+    .history h2 {
+      margin: 0 0 10px;
+      font-size: 15px;
+      line-height: 1.2;
+    }
+    .history-list {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .history-item a {
+      display: block;
+      padding: 10px 11px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfdfb;
+      color: var(--ink);
+      text-decoration: none;
+    }
+    .history-item a:hover {
+      border-color: #9ab6ad;
+      background: #f7fbf8;
+    }
+    .history-title {
+      display: block;
+      font-size: 13px;
+      font-weight: 750;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .history-meta {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .history-empty {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .result {
+      display: flex;
+      flex-direction: column;
+      min-height: 560px;
+      overflow: hidden;
+    }
+    .result-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--line);
+      background: var(--soft);
+    }
+    .result-head h2 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.2;
+    }
+    .result-head p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .actions button,
+    .actions a {
+      width: auto;
+      min-height: 36px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      padding: 8px 11px;
+      border: 1px solid var(--line);
+      background: #ffffff;
+      color: var(--accent-dark);
+      font-size: 13px;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .actions button:hover,
+    .actions a:hover {
+      border-color: #9ab6ad;
+      background: #f7fbf8;
+    }
+    .player {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--line);
+      background: #fffaf0;
+    }
+    .player-meta {
+      min-width: 0;
+    }
+    .player-title {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 760;
+    }
+    .player-status {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .player-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .player-controls button {
+      width: 40px;
+      height: 36px;
+      display: inline-grid;
+      place-items: center;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #ffffff;
+      color: var(--accent-dark);
+      font-size: 15px;
+      font-weight: 800;
+    }
+    .player-controls button:hover {
+      border-color: #9ab6ad;
+      background: #f7fbf8;
+    }
+    .artifact {
+      color: var(--muted);
+      font-size: 12px;
+      max-width: 260px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    pre {
+      flex: 1;
+      margin: 0;
+      padding: 24px;
+      overflow: auto;
+      background: #fffdf8;
+      color: #1e261f;
+      font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+      font-size: 17px;
+      line-height: 1.8;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .empty {
+      flex: 1;
+      display: grid;
+      place-items: center;
+      padding: 40px;
+      color: var(--muted);
+      text-align: center;
+      background:
+        repeating-linear-gradient(0deg, #fffdf8 0 28px, #f6f1e8 28px 29px);
+    }
+    .empty strong {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--ink);
+      font-size: 20px;
+    }
+    @media (max-width: 860px) {
+      header {
+        align-items: start;
+        grid-template-columns: 1fr;
+      }
+      .brand {
+        align-items: flex-start;
+      }
+      .brand-logo {
+        width: 58px;
+        height: 58px;
+        flex-basis: 58px;
+      }
+      .brand-side {
+        width: 100%;
+        align-items: flex-start;
+        flex-direction: column;
+      }
+      .brand-art {
+        width: min(100%, 240px);
+      }
+      .format-list {
+        justify-content: flex-start;
+      }
+      main {
+        grid-template-columns: 1fr;
+      }
+      .result {
+        min-height: 430px;
+      }
+      .player {
+        grid-template-columns: 1fr;
+      }
+      .player-controls {
+        justify-content: flex-start;
+      }
+      h1 {
+        font-size: 28px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div class="brand">
+        <img class="brand-logo" src="$logo_href" alt="FantasyBaby">
+        <div>
+          <div class="wordmark">FantasyBaby</div>
+        <h1>&#20027;&#26059;&#24459;&#31616;&#35889;&#25552;&#21462;</h1>
+        <p class="subtitle">&#19978;&#20256;&#19968;&#27573;&#28165;&#26224;&#26059;&#24459;&#38899;&#39057;&#65292;&#29983;&#25104;&#21487;&#22797;&#21046;&#30340; numbered notation&#12290;</p>
+        </div>
+      </div>
+      <div class="brand-side">
+        <figure class="brand-art">
+          <video src="$video_href" poster="$logo_href" autoplay muted loop playsinline aria-label="FantasyBaby"></video>
+        </figure>
+        <div class="format-list" aria-label="supported formats">
+          <span>WAV</span><span>MP3</span><span>FLAC</span>
+        </div>
+      </div>
+    </header>
+    <main>
+      <form id="upload-form" class="panel upload" action="/transcribe" method="post" enctype="multipart/form-data">
+        <label class="dropzone">
+          <input id="audio-file" name="audio" type="file" accept=".wav,.mp3,.flac,audio/wav,audio/mpeg,audio/flac" required>
+          <span class="dropcopy">
+            <strong>&#36873;&#25321;&#38899;&#39057;&#25991;&#20214;</strong>
+            <span>&#25903;&#25345; WAV&#12289;MP3&#12289;FLAC&#65307;&#21333;&#26059;&#24459;&#24405;&#38899;&#25928;&#26524;&#26368;&#22909;&#12290;</span>
+          </span>
+        </label>
+        <div id="selected" class="selected">&#23578;&#26410;&#36873;&#25321;&#25991;&#20214;</div>
+        <audio id="preview" controls></audio>
+        $compute_mode_html
+        $message_html
+        <button id="submit-button" type="submit">&#25552;&#21462;&#20027;&#26059;&#24459;&#24182;&#29983;&#25104;&#31616;&#35889;</button>
+        $history_html
+      </form>
+      <section class="panel result">
+        $result_html
+      </section>
+    </main>
+  </div>
+  <script>
+    const form = document.getElementById("upload-form");
+    const input = document.getElementById("audio-file");
+    const selected = document.getElementById("selected");
+    const preview = document.getElementById("preview");
+    const submit = document.getElementById("submit-button");
+    input.addEventListener("change", () => {
+      if (!input.files.length) {
+        selected.textContent = "\\u5c1a\\u672a\\u9009\\u62e9\\u6587\\u4ef6";
+        preview.removeAttribute("src");
+        preview.classList.remove("is-visible");
+        return;
+      }
+      selected.textContent = input.files[0].name;
+      preview.src = URL.createObjectURL(input.files[0]);
+      preview.classList.add("is-visible");
+    });
+    form.addEventListener("submit", () => {
+      submit.disabled = true;
+      submit.textContent = "\\u6b63\\u5728\\u63d0\\u53d6...";
+    });
+    document.querySelectorAll("[data-copy-target]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const target = document.querySelector(button.dataset.copyTarget);
+        if (!target) return;
+        await navigator.clipboard.writeText(target.textContent);
+        button.textContent = "\\u5df2\\u590d\\u5236";
+        setTimeout(() => { button.textContent = "\\u590d\\u5236\\u7b80\\u8c31"; }, 1400);
+      });
+    });
+
+    const playerDataNode = document.getElementById("melody-player-data");
+    if (playerDataNode) {
+      const playerData = JSON.parse(playerDataNode.textContent);
+      const playButton = document.getElementById("melody-play");
+      const restartButton = document.getElementById("melody-restart");
+      const stopButton = document.getElementById("melody-stop");
+      const status = document.getElementById("melody-player-status");
+      let audioContext = null;
+      let scheduled = [];
+      let activeMaster = null;
+      let stopTimer = null;
+
+      const clearScheduled = () => {
+        scheduled.forEach((node) => {
+          try { node.stop(); } catch (_error) {}
+        });
+        scheduled = [];
+        if (activeMaster) {
+          try { activeMaster.disconnect(); } catch (_error) {}
+          activeMaster = null;
+        }
+        if (stopTimer) {
+          clearTimeout(stopTimer);
+          stopTimer = null;
+        }
+      };
+
+      const setStatus = (text) => {
+        if (status) status.textContent = text;
+      };
+
+      const pitchToFrequency = (pitch) => 440 * Math.pow(2, (pitch - 69) / 12);
+
+      const scheduleTone = (note, start, duration, master) => {
+        const frequency = pitchToFrequency(note.pitch);
+        const voice = audioContext.createGain();
+        const toneFilter = audioContext.createBiquadFilter();
+        toneFilter.type = "lowpass";
+        toneFilter.frequency.setValueAtTime(Math.min(6200, frequency * 8), start);
+        toneFilter.Q.setValueAtTime(0.7, start);
+        voice.gain.setValueAtTime(0.0001, start);
+        voice.gain.exponentialRampToValueAtTime(0.62, start + 0.018);
+        voice.gain.linearRampToValueAtTime(0.48, start + Math.min(0.16, duration * 0.45));
+        voice.gain.setTargetAtTime(0.0001, start + Math.max(0.04, duration - 0.08), 0.045);
+        voice.connect(toneFilter).connect(master);
+
+        const vibrato = audioContext.createOscillator();
+        const vibratoDepth = audioContext.createGain();
+        vibrato.type = "sine";
+        vibrato.frequency.setValueAtTime(5.2, start);
+        vibratoDepth.gain.setValueAtTime(Math.min(3.0, frequency * 0.004), start);
+        vibrato.connect(vibratoDepth);
+
+        [
+          ["triangle", 1.0, 0.74],
+          ["sine", 2.01, 0.18],
+          ["sine", 3.0, 0.08],
+        ].forEach(([type, ratio, level]) => {
+          const oscillator = audioContext.createOscillator();
+          const partialGain = audioContext.createGain();
+          oscillator.type = type;
+          oscillator.frequency.setValueAtTime(frequency * ratio, start);
+          partialGain.gain.setValueAtTime(level, start);
+          vibratoDepth.connect(oscillator.frequency);
+          oscillator.connect(partialGain).connect(voice);
+          oscillator.start(start);
+          oscillator.stop(start + duration + 0.12);
+          scheduled.push(oscillator);
+        });
+
+        if (duration >= 0.12) {
+          const noise = audioContext.createBufferSource();
+          const noiseGain = audioContext.createGain();
+          const noiseFilter = audioContext.createBiquadFilter();
+          const sampleCount = Math.max(1, Math.floor(audioContext.sampleRate * 0.035));
+          const buffer = audioContext.createBuffer(1, sampleCount, audioContext.sampleRate);
+          const channel = buffer.getChannelData(0);
+          for (let index = 0; index < sampleCount; index += 1) {
+            channel[index] = (Math.random() * 2 - 1) * Math.pow(1 - index / sampleCount, 2);
+          }
+          noise.buffer = buffer;
+          noiseFilter.type = "bandpass";
+          noiseFilter.frequency.setValueAtTime(Math.min(4600, frequency * 6), start);
+          noiseFilter.Q.setValueAtTime(1.2, start);
+          noiseGain.gain.setValueAtTime(0.025, start);
+          noiseGain.gain.exponentialRampToValueAtTime(0.0001, start + 0.045);
+          noise.connect(noiseFilter).connect(noiseGain).connect(master);
+          noise.start(start);
+          noise.stop(start + 0.055);
+          scheduled.push(noise);
+        }
+
+        vibrato.start(start);
+        vibrato.stop(start + duration + 0.12);
+        scheduled.push(vibrato);
+      };
+
+      const playMelody = async (restart = true) => {
+        if (!playerData.notes.length) {
+          setStatus("\\u6ca1\\u6709\\u53ef\\u64ad\\u653e\\u7684\\u65cb\\u5f8b");
+          return;
+        }
+        clearScheduled();
+        audioContext = audioContext || new (window.AudioContext || window.webkitAudioContext)();
+        await audioContext.resume();
+        const now = audioContext.currentTime + 0.08;
+        const firstStart = restart ? playerData.notes[0].start : 0;
+        const master = audioContext.createGain();
+        const compressor = audioContext.createDynamicsCompressor();
+        master.gain.value = 0.16;
+        compressor.threshold.value = -22;
+        compressor.knee.value = 24;
+        compressor.ratio.value = 3;
+        compressor.attack.value = 0.006;
+        compressor.release.value = 0.18;
+        master.connect(compressor).connect(audioContext.destination);
+        activeMaster = master;
+
+        playerData.notes.forEach((note) => {
+          const start = now + Math.max(0, note.start - firstStart);
+          const duration = Math.max(0.08, note.end - note.start);
+          scheduleTone(note, start, duration, master);
+        });
+
+        const totalMs = Math.max(200, (playerData.durationSeconds - firstStart) * 1000 + 180);
+        setStatus("\\u6b63\\u5728\\u64ad\\u653e " + playerData.noteCount + " \\u4e2a\\u97f3");
+        stopTimer = setTimeout(() => {
+          scheduled = [];
+          if (activeMaster) {
+            try { activeMaster.disconnect(); } catch (_error) {}
+            activeMaster = null;
+          }
+          setStatus("\\u64ad\\u653e\\u5b8c\\u6210");
+        }, totalMs);
+      };
+
+      playButton?.addEventListener("click", () => {
+        playMelody(true).catch(() => setStatus("\\u64ad\\u653e\\u88ab\\u6d4f\\u89c8\\u5668\\u62e6\\u622a\\uff0c\\u8bf7\\u518d\\u70b9\\u4e00\\u6b21"));
+      });
+      restartButton?.addEventListener("click", () => {
+        playMelody(true).catch(() => setStatus("\\u64ad\\u653e\\u5931\\u8d25"));
+      });
+      stopButton?.addEventListener("click", () => {
+        clearScheduled();
+        setStatus("\\u5df2\\u505c\\u6b62");
+      });
+      window.addEventListener("load", () => {
+        playMelody(true).catch(() => setStatus("\\u81ea\\u52a8\\u64ad\\u653e\\u88ab\\u6d4f\\u89c8\\u5668\\u62e6\\u622a\\uff0c\\u8bf7\\u70b9\\u51fb\\u64ad\\u653e"));
+      });
+    }
+  </script>
+</body>
+</html>

@@ -2,13 +2,27 @@
 
 from __future__ import annotations
 
+__all__ = ["PipelinePlan", "MusicTranscriptionPipeline"]
+
 from dataclasses import dataclass, field
 import logging
 import math
 from pathlib import Path
 from time import perf_counter
 
-from music_stuff.audio import AudioPreprocessor
+from typing import TypeVar
+
+from collections.abc import Callable
+
+from music_stuff.audio import AudioPreprocessor, PreparedAudio
+from music_stuff.constants import (
+    MELODY_SCORE_DENSITY_DIVISOR,
+    MELODY_SCORE_DENSITY_WEIGHT,
+    MELODY_SCORE_DURATION_DIVISOR,
+    MELODY_SCORE_DURATION_WEIGHT,
+    MELODY_SCORE_MINIMUM,
+    VOICE_VS_ACCOMPANIMENT_THRESHOLD,
+)
 from music_stuff.harmony import ChordAnalyzer, KeyAnalyzer, build_analysis
 from music_stuff.melody import (
     AutoMelodyTranscriber,
@@ -31,6 +45,7 @@ from music_stuff.source import (
 
 
 LOGGER = logging.getLogger(__name__)
+_T = TypeVar("_T")
 
 
 @dataclass
@@ -119,14 +134,14 @@ class MusicTranscriptionPipeline:
             analysis_path=analysis_path,
         )
 
-    def _time_stage(self, stage: str, action):
+    def _time_stage(self, stage: str, action: Callable[[], _T]) -> _T:
         started = perf_counter()
         LOGGER.info("Stage started: %s", stage)
         result = action()
         LOGGER.info("Stage finished: %s elapsed=%.2fs", stage, perf_counter() - started)
         return result
 
-    def _extract_source_aware_melody(self, mixed_audio, separation: SourceSeparationResult) -> Melody:
+    def _extract_source_aware_melody(self, mixed_audio: PreparedAudio, separation: SourceSeparationResult) -> Melody:
         if not separation.is_available:
             LOGGER.info(
                 "Source separation not used: backend=%s status=%s message=%s",
@@ -171,7 +186,7 @@ class MusicTranscriptionPipeline:
 
         voice = next((melody for stem, melody, _confidence in useful if stem.kind == HUMAN_VOICE), None)
         accompaniment = next((melody for stem, melody, _confidence in useful if stem.kind == ACCOMPANIMENT), None)
-        if voice and (not accompaniment or (voice.source_confidence or 0.0) >= (accompaniment.source_confidence or 0.0) * 0.35):
+        if voice and (not accompaniment or (voice.source_confidence or 0.0) >= (accompaniment.source_confidence or 0.0) * VOICE_VS_ACCOMPANIMENT_THRESHOLD):
             return voice
         if accompaniment:
             return accompaniment
@@ -186,7 +201,7 @@ class MusicTranscriptionPipeline:
             source_confidence=confidence,
         )
 
-    def _transcribe_stem_melody(self, stem_audio, stem: SourceStem) -> Melody:
+    def _transcribe_stem_melody(self, stem_audio: PreparedAudio, stem: SourceStem) -> Melody:
         if stem.kind != HUMAN_VOICE or not isinstance(self.melody_transcriber, AutoMelodyTranscriber):
             return self.melody_transcriber.transcribe(stem_audio)
 
@@ -209,9 +224,9 @@ class MusicTranscriptionPipeline:
         if not melody.notes:
             return 0.0
         voiced = self._voiced_duration(melody)
-        density = min(1.0, len(melody.notes) / 32.0)
-        duration_score = min(1.0, voiced / 12.0)
-        return max(0.05, min(1.0, (duration_score * 0.7) + (density * 0.3)))
+        density = min(1.0, len(melody.notes) / MELODY_SCORE_DENSITY_DIVISOR)
+        duration_score = min(1.0, voiced / MELODY_SCORE_DURATION_DIVISOR)
+        return max(MELODY_SCORE_MINIMUM, min(1.0, (duration_score * MELODY_SCORE_DURATION_WEIGHT) + (density * MELODY_SCORE_DENSITY_WEIGHT)))
 
     def _voiced_duration(self, melody: Melody) -> float:
         return math.fsum(max(0.0, note.end - note.start) for note in melody.notes)

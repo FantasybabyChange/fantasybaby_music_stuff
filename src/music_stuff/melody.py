@@ -2,6 +2,14 @@
 
 from __future__ import annotations
 
+__all__ = [
+    "MelodyTranscriber",
+    "BasicPitchMelodyTranscriber",
+    "AutoMelodyTranscriber",
+    "MixedAudioMelodyTranscriber",
+    "SimplePitchMelodyTranscriber",
+]
+
 from dataclasses import dataclass, field
 import logging
 import math
@@ -9,10 +17,43 @@ from collections.abc import Callable
 from typing import Any, Protocol
 
 from music_stuff.audio import PreparedAudio
+from music_stuff.constants import (
+    CONTINUITY_PITCH_SPAN,
+    CONTINUITY_SCORE_CAP,
+    REGISTER_PITCH_SPAN,
+    REGISTER_SCORE_CAP,
+)
 from music_stuff.models import Melody, NoteEvent
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _frames_to_notes(
+    frames: list[tuple[float, float, int | None]],
+    min_note_duration: float,
+) -> list[NoteEvent]:
+    """Convert pitch frames into contiguous note events, merging adjacent same-pitch frames."""
+    notes: list[NoteEvent] = []
+    current_pitch: int | None = None
+    current_start = 0.0
+    current_end = 0.0
+
+    for frame_start, frame_end, pitch in frames:
+        if pitch == current_pitch:
+            current_end = frame_end
+            continue
+
+        if current_pitch is not None and current_end - current_start >= min_note_duration:
+            notes.append(NoteEvent(pitch=current_pitch, start=current_start, end=current_end))
+
+        current_pitch = pitch
+        current_start = frame_start
+        current_end = frame_end
+
+    if current_pitch is not None and current_end - current_start >= min_note_duration:
+        notes.append(NoteEvent(pitch=current_pitch, start=current_start, end=current_end))
+    return notes
 
 
 def _amplitude_to_velocity(value: Any) -> int:
@@ -112,10 +153,10 @@ class BasicPitchMelodyTranscriber:
         best_note: NoteEvent | None = None
         best_score = 0.0
         for note in active_notes:
-            register_score = 1.0 - min(abs(note.pitch - self.preferred_midi_pitch) / 24.0, 0.75)
+            register_score = 1.0 - min(abs(note.pitch - self.preferred_midi_pitch) / REGISTER_PITCH_SPAN, REGISTER_SCORE_CAP)
             continuity_score = 1.0
             if previous_pitch is not None:
-                continuity_score = 1.0 - min(abs(note.pitch - previous_pitch) / 12.0, 0.85)
+                continuity_score = 1.0 - min(abs(note.pitch - previous_pitch) / CONTINUITY_PITCH_SPAN, CONTINUITY_SCORE_CAP)
             score = note.velocity * (register_score + self.continuity_weight * continuity_score)
             if score > best_score:
                 best_score = score
@@ -228,7 +269,7 @@ class MixedAudioMelodyTranscriber:
             LOGGER.warning("librosa is not available; falling back to simple pitch transcriber")
             return self.fallback.transcribe(audio)
 
-        if not audio.samples or not audio.sample_rate:
+        if not len(audio.samples) or not audio.sample_rate:
             LOGGER.warning("No audio samples available for mixed-audio melody extraction: %s", audio.path)
             return Melody(notes=(), source=str(audio.path))
 
@@ -262,7 +303,7 @@ class MixedAudioMelodyTranscriber:
         )
         return Melody(notes=tuple(notes), source=str(audio.path))
 
-    def _select_pitch_track(self, pitches, magnitudes, sample_rate: int, librosa, np):
+    def _select_pitch_track(self, pitches: Any, magnitudes: Any, sample_rate: int, librosa: Any, np: Any) -> list[tuple[float, float, int | None]]:
         frame_count = pitches.shape[1]
         max_magnitude = float(np.max(magnitudes)) if magnitudes.size else 0.0
         silence_threshold = max_magnitude * self.silence_threshold_ratio
@@ -287,10 +328,10 @@ class MixedAudioMelodyTranscriber:
                     continue
 
                 magnitude = float(frame_magnitudes[index])
-                register_score = 1.0 - min(abs(midi - self.preferred_midi_pitch) / 24.0, 0.75)
+                register_score = 1.0 - min(abs(midi - self.preferred_midi_pitch) / REGISTER_PITCH_SPAN, REGISTER_SCORE_CAP)
                 continuity_score = 1.0
                 if previous_pitch is not None:
-                    continuity_score = 1.0 - min(abs(midi - previous_pitch) / 12.0, 0.85)
+                    continuity_score = 1.0 - min(abs(midi - previous_pitch) / CONTINUITY_PITCH_SPAN, CONTINUITY_SCORE_CAP)
                 score = magnitude * (register_score + self.continuity_weight * continuity_score)
                 if score > best_score:
                     best_score = score
@@ -327,7 +368,7 @@ class MixedAudioMelodyTranscriber:
         return smoothed
 
     def _frames_to_notes(self, frames: list[tuple[float, float, int | None]]) -> list[NoteEvent]:
-        notes = self.fallback._frames_to_notes(frames)
+        notes = _frames_to_notes(frames, self.fallback.min_note_duration)
         return [note for note in notes if note.end - note.start >= self.min_note_duration]
 
 
@@ -352,7 +393,7 @@ class SimplePitchMelodyTranscriber:
     max_midi_pitch: int = 88
 
     def transcribe(self, audio: PreparedAudio) -> Melody:
-        if not audio.samples or not audio.sample_rate:
+        if not len(audio.samples) or not audio.sample_rate:
             LOGGER.warning("No audio samples available for melody extraction: %s", audio.path)
             return Melody(notes=(), source=str(audio.path))
 
@@ -376,26 +417,32 @@ class SimplePitchMelodyTranscriber:
 
     def _frame_pitches(
         self,
-        samples: tuple[float, ...],
+        samples: Any,
         sample_rate: int,
     ) -> list[tuple[float, float, int | None]]:
-        pitches: list[tuple[float, float, int | None]] = []
-        if len(samples) < self.frame_size:
-            padded = samples + (0.0,) * (self.frame_size - len(samples))
-            pitch = self._estimate_frame_pitch(padded, sample_rate)
-            return [(0.0, len(samples) / sample_rate, pitch)]
+        import numpy as np
 
-        for start in range(0, len(samples) - self.frame_size + 1, self.hop_size):
+        pitches: list[tuple[float, float, int | None]] = []
+        n = len(samples)
+        if n < self.frame_size:
+            padded = np.zeros(self.frame_size, dtype=np.float32)
+            padded[:n] = samples
+            pitch = self._estimate_frame_pitch(padded, sample_rate)
+            return [(0.0, n / sample_rate, pitch)]
+
+        for start in range(0, n - self.frame_size + 1, self.hop_size):
             frame = samples[start : start + self.frame_size]
             frame_start = start / sample_rate
             frame_end = (start + self.frame_size) / sample_rate
             pitches.append((frame_start, frame_end, self._estimate_frame_pitch(frame, sample_rate)))
         return pitches
 
-    def _estimate_frame_pitch(self, frame: tuple[float, ...], sample_rate: int) -> int | None:
-        mean = sum(frame) / len(frame)
-        centered = [sample - mean for sample in frame]
-        rms = math.sqrt(sum(sample * sample for sample in centered) / len(centered))
+    def _estimate_frame_pitch(self, frame: Any, sample_rate: int) -> int | None:
+        import numpy as np
+
+        centered = np.asarray(frame, dtype=np.float64)
+        centered = centered - centered.mean()
+        rms = float(np.sqrt(np.mean(centered ** 2)))
         if rms < self.rms_threshold:
             return None
 
@@ -404,14 +451,12 @@ class SimplePitchMelodyTranscriber:
         best_lag = 0
         best_score = 0.0
         stride = max(1, self.correlation_stride)
-        for lag in range(min_lag, max_lag + 1):
-            score = 0.0
-            energy = 0.0
-            for index in range(0, len(centered) - lag, stride):
-                left = centered[index]
-                right = centered[index + lag]
-                score += left * right
-                energy += left * left + right * right
+        for lag in range(min_lag, max_lag + 1, stride):
+            left = centered[:len(centered) - lag:stride]
+            right = centered[lag::stride]
+            min_len = min(len(left), len(right))
+            score = float(np.dot(left[:min_len], right[:min_len]))
+            energy = float(np.dot(left[:min_len], left[:min_len]) + np.dot(right[:min_len], right[:min_len]))
             normalized = (2.0 * score / energy) if energy else 0.0
             if normalized > best_score:
                 best_score = normalized
@@ -426,23 +471,4 @@ class SimplePitchMelodyTranscriber:
         return pitch
 
     def _frames_to_notes(self, frames: list[tuple[float, float, int | None]]) -> list[NoteEvent]:
-        notes: list[NoteEvent] = []
-        current_pitch: int | None = None
-        current_start = 0.0
-        current_end = 0.0
-
-        for frame_start, frame_end, pitch in frames:
-            if pitch == current_pitch:
-                current_end = frame_end
-                continue
-
-            if current_pitch is not None and current_end - current_start >= self.min_note_duration:
-                notes.append(NoteEvent(pitch=current_pitch, start=current_start, end=current_end))
-
-            current_pitch = pitch
-            current_start = frame_start
-            current_end = frame_end
-
-        if current_pitch is not None and current_end - current_start >= self.min_note_duration:
-            notes.append(NoteEvent(pitch=current_pitch, start=current_start, end=current_end))
-        return notes
+        return _frames_to_notes(frames, self.min_note_duration)

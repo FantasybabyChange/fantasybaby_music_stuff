@@ -1,0 +1,43 @@
+"""Shared numeric constants for the music analysis pipeline."""
+
+from __future__ import annotations
+
+
+__all__ = [
+    "REGISTER_PITCH_SPAN",
+    "REGISTER_SCORE_CAP",
+    "CONTINUITY_PITCH_SPAN",
+    "CONTINUITY_SCORE_CAP",
+    "MERGE_GAP_RATIO",
+    "VOICE_VS_ACCOMPANIMENT_THRESHOLD",
+    "MELODY_SCORE_DENSITY_DIVISOR",
+    "MELODY_SCORE_DURATION_DIVISOR",
+    "MELODY_SCORE_DURATION_WEIGHT",
+    "MELODY_SCORE_DENSITY_WEIGHT",
+    "MELODY_SCORE_MINIMUM",
+    "DISPLAY_OFFSET_GAP_SECONDS",
+    "DISPLAY_OFFSET_PHRASE_THRESHOLD",
+    "DISPLAY_OFFSET_SCORE_RATIO",
+]
+
+# Melody scoring (used in melody.py BasicPitchMelodyTranscriber and MixedAudioMelodyTranscriber)
+REGISTER_PITCH_SPAN = 24.0
+REGISTER_SCORE_CAP = 0.75
+CONTINUITY_PITCH_SPAN = 12.0
+CONTINUITY_SCORE_CAP = 0.85
+
+# Rhythm quantization (used in rhythm.py RhythmQuantizer)
+MERGE_GAP_RATIO = 0.51
+
+# Pipeline melody candidate scoring (used in pipeline.py MusicTranscriptionPipeline)
+VOICE_VS_ACCOMPANIMENT_THRESHOLD = 0.35
+MELODY_SCORE_DENSITY_DIVISOR = 32.0
+MELODY_SCORE_DURATION_DIVISOR = 12.0
+MELODY_SCORE_DURATION_WEIGHT = 0.7
+MELODY_SCORE_DENSITY_WEIGHT = 0.3
+MELODY_SCORE_MINIMUM = 0.05
+
+# Score display offset (used in score.py)
+DISPLAY_OFFSET_GAP_SECONDS = 2.5
+DISPLAY_OFFSET_PHRASE_THRESHOLD = 4
+DISPLAY_OFFSET_SCORE_RATIO = 0.8

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+__all__ = ["PreparedAudio", "AudioPreprocessor"]
+
 from dataclasses import dataclass
 import logging
 from pathlib import Path
 import shutil
 import subprocess
+from typing import Any
 import wave
 
 
@@ -22,7 +25,7 @@ class PreparedAudio:
     path: Path
     sample_rate: int | None = None
     duration_seconds: float | None = None
-    samples: tuple[float, ...] = ()
+    samples: Any = ()
 
 
 @dataclass
@@ -70,7 +73,7 @@ class AudioPreprocessor:
             path=input_path,
             sample_rate=sample_rate,
             duration_seconds=duration,
-            samples=tuple(mono),
+            samples=mono,
         )
 
     def _prepare_with_ffmpeg(self, input_path: Path) -> PreparedAudio:
@@ -102,9 +105,11 @@ class AudioPreprocessor:
             "pipe:1",
         ])
         try:
-            result = subprocess.run(command, capture_output=True, check=True)
+            result = subprocess.run(command, capture_output=True, check=True, timeout=120)
         except FileNotFoundError as exc:
             raise ValueError(_missing_ffmpeg_message()) from exc
+        except subprocess.TimeoutExpired as exc:
+            raise ValueError(f"ffmpeg timed out after {exc.timeout}s while decoding {input_path.name}.") from exc
         except subprocess.CalledProcessError as exc:
             detail = exc.stderr.decode("utf-8", errors="replace").strip()
             message = f"Could not decode {input_path.name} with ffmpeg."
@@ -124,7 +129,7 @@ class AudioPreprocessor:
             path=input_path,
             sample_rate=self.compressed_sample_rate,
             duration_seconds=duration,
-            samples=tuple(mono),
+            samples=mono,
         )
 
     def _resolve_ffmpeg_binary(self) -> str:
@@ -145,37 +150,39 @@ class AudioPreprocessor:
         return bundled_ffmpeg
 
 
-def _decode_pcm(raw: bytes, sample_width: int) -> list[float]:
+def _decode_pcm(raw: bytes, sample_width: int) -> "np.ndarray":
     """Decode little-endian PCM samples to floats in roughly [-1.0, 1.0]."""
+    import numpy as np
+
     if sample_width not in {1, 2, 3, 4}:
         raise ValueError(f"Unsupported WAV sample width: {sample_width} bytes")
 
-    max_value = float(1 << (sample_width * 8 - 1))
-    values: list[float] = []
-    for index in range(0, len(raw), sample_width):
-        chunk = raw[index : index + sample_width]
-        if len(chunk) < sample_width:
-            break
-        if sample_width == 1:
-            integer = int.from_bytes(chunk, "little", signed=False) - 128
-        else:
-            integer = int.from_bytes(chunk, "little", signed=True)
-        values.append(max(-1.0, min(1.0, integer / max_value)))
+    if sample_width == 2:
+        return np.clip(np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0, -1.0, 1.0)
+    if sample_width == 1:
+        return np.clip((np.frombuffer(raw, dtype=np.uint8).astype(np.float32) - 128.0) / 128.0, -1.0, 1.0)
+    if sample_width == 4:
+        return np.clip(np.frombuffer(raw, dtype="<i4").astype(np.float64) / 2147483648.0, -1.0, 1.0).astype(np.float32)
+
+    # 3-byte samples: manually decode each 3-byte little-endian signed int
+    sample_count = len(raw) // 3
+    values = np.empty(sample_count, dtype=np.float32)
+    for i in range(sample_count):
+        chunk = raw[i * 3 : (i + 1) * 3]
+        integer = int.from_bytes(chunk, "little", signed=True)
+        values[i] = max(-1.0, min(1.0, integer / 8388608.0))
     return values
 
 
-def _downmix(samples: list[float], channels: int) -> list[float]:
+def _downmix(samples: "np.ndarray", channels: int) -> "np.ndarray":
+    """Mix multi-channel samples down to mono by averaging channels."""
+    import numpy as np
+
     if channels <= 0:
         raise ValueError("WAV file must contain at least one channel.")
     if channels == 1:
         return samples
-
-    mono: list[float] = []
-    for index in range(0, len(samples), channels):
-        frame = samples[index : index + channels]
-        if len(frame) == channels:
-            mono.append(sum(frame) / channels)
-    return mono
+    return samples.reshape(-1, channels).mean(axis=1)
 
 
 def _missing_ffmpeg_message() -> str:

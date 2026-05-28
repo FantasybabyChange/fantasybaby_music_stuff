@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+__all__ = ["main", "build_parser"]
+
 import argparse
 import logging
 from pathlib import Path
@@ -9,10 +11,10 @@ import sys
 
 from music_stuff import __version__
 from music_stuff.pipeline import MusicTranscriptionPipeline
-from music_stuff.web import UIConfig, run_ui
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build the CLI argument parser with all subcommands."""
     parser = argparse.ArgumentParser(
         prog="music-stuff",
         description="Generate melody, key, chord, and score artifacts from audio.",
@@ -31,6 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     subparsers = parser.add_subparsers(dest="command")
+    parser.set_defaults(func=None)
 
     plan_parser = subparsers.add_parser("plan", help="Show the planned pipeline stages.")
     plan_parser.set_defaults(func=_handle_plan)
@@ -90,6 +93,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _handle_plan(_args: argparse.Namespace) -> int:
+    """Print the planned pipeline stages."""
     pipeline = MusicTranscriptionPipeline()
     for index, stage in enumerate(pipeline.plan().stages, start=1):
         print(f"{index}. {stage}")
@@ -97,6 +101,7 @@ def _handle_plan(_args: argparse.Namespace) -> int:
 
 
 def _handle_transcribe(args: argparse.Namespace) -> int:
+    """Run the full transcription pipeline on an audio file."""
     pipeline = MusicTranscriptionPipeline()
 
     if args.dry_run:
@@ -122,6 +127,9 @@ def _handle_transcribe(args: argparse.Namespace) -> int:
 
 
 def _handle_ui(args: argparse.Namespace) -> int:
+    """Start the local web UI for uploading audio and viewing Jianpu."""
+    from music_stuff.web import UIConfig, run_ui
+
     config = UIConfig(
         host=args.host,
         port=args.port,
@@ -146,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     _configure_logging(args.log_level, args.log_file)
 
-    if not hasattr(args, "func"):
+    if args.func is None:
         parser.print_help()
         return 0
 

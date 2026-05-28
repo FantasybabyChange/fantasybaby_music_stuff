@@ -2,17 +2,52 @@
 
 from __future__ import annotations
 
+__all__ = [
+    "COMPUTE_MODE_AUTO",
+    "COMPUTE_MODE_GPU",
+    "COMPUTE_MODE_CPU",
+    "COMPUTE_MODE_BALANCED",
+    "DEFAULT_COMPUTE_MODE",
+    "SUPPORTED_COMPUTE_MODES",
+    "HUMAN_VOICE",
+    "ACCOMPANIMENT",
+    "MIXED",
+    "SOURCE_LABELS",
+    "SourceStem",
+    "SourceSeparationResult",
+    "DemucsSourceSeparator",
+    "normalize_compute_mode",
+    "build_demucs_separator",
+]
+
 from dataclasses import dataclass, field
+import functools
 import importlib.util
 import logging
 import os
 from pathlib import Path
 import shutil
 import subprocess
+from typing import Any
 import wave
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+@functools.lru_cache(maxsize=2)
+def _get_cached_model(model_name: str) -> Any:
+    """Return a cached Demucs model, loading it only once per model name."""
+    from demucs.pretrained import get_model
+
+    return get_model(model_name)
+
+
+@functools.lru_cache(maxsize=1)
+def _find_system_ffmpeg() -> str | None:
+    """Return the system ffmpeg path, cached to avoid repeated PATH lookups."""
+    return shutil.which("ffmpeg")
+
 
 COMPUTE_MODE_AUTO = "auto"
 COMPUTE_MODE_GPU = "gpu"
@@ -150,7 +185,7 @@ class DemucsSourceSeparator:
         return env
 
     def _resolve_ffmpeg_binary(self, output_dir: Path | None = None) -> str | None:
-        system_ffmpeg = shutil.which("ffmpeg")
+        system_ffmpeg = _find_system_ffmpeg()
         if system_ffmpeg:
             return system_ffmpeg
         try:
@@ -198,9 +233,8 @@ class DemucsSourceSeparator:
         import numpy as np
         import torch
         from demucs.apply import apply_model
-        from demucs.pretrained import get_model
 
-        model = get_model(self.model_name)
+        model = _get_cached_model(self.model_name)
         device = self._resolve_torch_device(torch)
         LOGGER.info(
             "Running Demucs model on device=%s cuda_available=%s",
@@ -249,7 +283,7 @@ class DemucsSourceSeparator:
             self._save_wav_tensor(source_audio, stem_dir / f"{source_name}.wav", model.samplerate, np)
         self._save_wav_tensor(no_vocals, stem_dir / "no_vocals.wav", model.samplerate, np)
 
-    def _resolve_torch_device(self, torch) -> str:
+    def _resolve_torch_device(self, torch: Any) -> str:
         if self.device == "cuda" and not torch.cuda.is_available():
             raise ValueError("CUDA was requested, but PyTorch cannot see an available GPU.")
         if self.device != "auto":
@@ -308,7 +342,7 @@ class DemucsSourceSeparator:
         except Exception:
             LOGGER.info("Using device: %s", device)
 
-    def _load_wav_tensor(self, input_path: Path):
+    def _load_wav_tensor(self, input_path: Path) -> tuple[Any, int]:
         import numpy as np
         import torch
 
@@ -324,7 +358,7 @@ class DemucsSourceSeparator:
         audio = audio.reshape(-1, channels).T
         return torch.from_numpy(audio), sample_rate
 
-    def _save_wav_tensor(self, audio, output_path: Path, sample_rate: int, np) -> None:
+    def _save_wav_tensor(self, audio: Any, output_path: Path, sample_rate: int, np: Any) -> None:
         clipped = audio.detach().cpu().clamp(-1.0, 1.0)
         pcm = (clipped.T.numpy() * 32767.0).astype("<i2")
         with wave.open(str(output_path), "wb") as wav_file:

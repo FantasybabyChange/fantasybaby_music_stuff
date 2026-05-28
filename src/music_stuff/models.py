@@ -2,6 +2,16 @@
 
 from __future__ import annotations
 
+__all__ = [
+    "NoteEvent",
+    "Melody",
+    "RhythmEstimate",
+    "KeyEstimate",
+    "ChordSegment",
+    "AnalysisResult",
+    "TranscriptionResult",
+]
+
 from dataclasses import dataclass, field
 from pathlib import Path
 

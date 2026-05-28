@@ -15,7 +15,7 @@ def test_prepare_mp3_uses_ffmpeg_decoder(tmp_path, monkeypatch):
     )
     calls = []
 
-    def fake_run(command, *, capture_output, check):
+    def fake_run(command, *, capture_output, check, timeout=None):
         calls.append(command)
         return subprocess.CompletedProcess(command, 0, stdout=raw_pcm, stderr=b"")
 
@@ -35,7 +35,7 @@ def test_prepare_flac_uses_ffmpeg_decoder(tmp_path, monkeypatch):
     audio_path = tmp_path / "tone.flac"
     audio_path.write_bytes(b"fake flac bytes")
 
-    def fake_run(command, *, capture_output, check):
+    def fake_run(command, *, capture_output, check, timeout=None):
         return subprocess.CompletedProcess(command, 0, stdout=b"\x00\x00", stderr=b"")
 
     monkeypatch.setattr("music_stuff.audio.subprocess.run", fake_run)
@@ -43,7 +43,7 @@ def test_prepare_flac_uses_ffmpeg_decoder(tmp_path, monkeypatch):
     prepared = AudioPreprocessor(ffmpeg_binary="ffmpeg-test").prepare(audio_path)
 
     assert prepared.sample_rate == 22050
-    assert prepared.samples == (0.0,)
+    assert list(prepared.samples) == [0.0]
 
 
 def test_prepare_compressed_audio_can_still_be_limited_when_requested(tmp_path, monkeypatch):
@@ -51,7 +51,7 @@ def test_prepare_compressed_audio_can_still_be_limited_when_requested(tmp_path, 
     audio_path.write_bytes(b"fake mp3 bytes")
     calls = []
 
-    def fake_run(command, *, capture_output, check):
+    def fake_run(command, *, capture_output, check, timeout=None):
         calls.append(command)
         return subprocess.CompletedProcess(command, 0, stdout=b"\x00\x00", stderr=b"")
 

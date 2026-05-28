@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+__all__ = ["KeyAnalyzer", "ChordAnalyzer", "build_analysis"]
+
 from dataclasses import dataclass
+import logging
 
 from music_stuff.audio import PreparedAudio
 from music_stuff.models import AnalysisResult, ChordSegment, KeyEstimate, Melody
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -13,6 +18,7 @@ class KeyAnalyzer:
     """Estimate tonic and mode from audio and/or melody notes."""
 
     def analyze(self, audio: PreparedAudio, melody: Melody) -> KeyEstimate:
+        """Estimate the key by matching pitch classes against major/minor scales."""
         if not melody.notes:
             return KeyEstimate(tonic="C", mode="major", confidence=0.0)
 
@@ -50,6 +56,8 @@ class ChordAnalyzer:
         melody: Melody,
         key: KeyEstimate | None = None,
     ) -> tuple[ChordSegment, ...]:
+        """Stub — chord analysis is not yet implemented."""
+        LOGGER.info("Chord analysis not yet implemented; returning empty result.")
         return ()
 
 

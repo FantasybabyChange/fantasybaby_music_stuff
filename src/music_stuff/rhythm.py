@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+__all__ = ["RhythmQuantizer"]
+
 from dataclasses import dataclass
 import logging
 import math
 from statistics import median
 
 from music_stuff.audio import PreparedAudio
+from music_stuff.constants import MERGE_GAP_RATIO
 from music_stuff.models import Melody, NoteEvent, RhythmEstimate
 
 
@@ -25,7 +28,7 @@ class RhythmQuantizer:
 
     def analyze(self, audio: PreparedAudio) -> RhythmEstimate:
         """Estimate tempo and beat positions from the prepared audio."""
-        if not audio.samples or not audio.sample_rate:
+        if not len(audio.samples) or not audio.sample_rate:
             LOGGER.warning("No audio samples available for rhythm analysis: %s", audio.path)
             return self._fallback_estimate()
 
@@ -110,7 +113,7 @@ class RhythmQuantizer:
             confidence=0.0,
         )
 
-    def _tempo_to_float(self, tempo) -> float:
+    def _tempo_to_float(self, tempo: object) -> float:
         if hasattr(tempo, "item"):
             return float(tempo.item())
         try:
@@ -131,9 +134,7 @@ class RhythmQuantizer:
         else:
             beat_seconds = 60.0 / tempo_bpm
 
-        offset = beat_times[0]
-        while offset - beat_seconds >= 0:
-            offset -= beat_seconds
+        offset = beat_times[0] % beat_seconds
         return max(0.0, offset)
 
     def _snap_to_grid(self, seconds: float, grid_seconds: float, offset: float) -> float:
@@ -142,7 +143,7 @@ class RhythmQuantizer:
 
     def _clean_quantized_notes(self, notes: list[NoteEvent], grid_seconds: float) -> list[NoteEvent]:
         cleaned: list[NoteEvent] = []
-        merge_gap = grid_seconds * 0.51
+        merge_gap = grid_seconds * MERGE_GAP_RATIO
         for note in sorted(notes, key=lambda item: (item.start, item.end, item.pitch)):
             start = max(0.0, note.start)
             end = max(note.end, start + grid_seconds)

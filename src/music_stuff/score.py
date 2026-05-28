@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+__all__ = ["ScoreExporter", "format_jianpu"]
+
 from dataclasses import asdict, dataclass
 from fractions import Fraction
 import json
@@ -9,6 +11,11 @@ import logging
 import math
 from pathlib import Path
 
+from music_stuff.constants import (
+    DISPLAY_OFFSET_GAP_SECONDS,
+    DISPLAY_OFFSET_PHRASE_THRESHOLD,
+    DISPLAY_OFFSET_SCORE_RATIO,
+)
 from music_stuff.models import AnalysisResult, Melody, NoteEvent
 
 
@@ -32,6 +39,7 @@ class ScoreExporter:
     """Export symbolic results into files users can inspect."""
 
     def export_midi(self, melody: Melody, output_path: Path) -> Path:
+        """Export melody as MIDI — not yet implemented."""
         raise NotImplementedError("MIDI export is not implemented yet.")
 
     def export_musicxml(
@@ -40,9 +48,11 @@ class ScoreExporter:
         analysis: AnalysisResult,
         output_path: Path,
     ) -> Path:
+        """Export melody and analysis as MusicXML — not yet implemented."""
         raise NotImplementedError("MusicXML export is not implemented yet.")
 
     def export_analysis_json(self, analysis: AnalysisResult, output_path: Path) -> Path:
+        """Write the analysis result as a JSON file."""
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(
             json.dumps(asdict(analysis), ensure_ascii=False, indent=2),
@@ -56,6 +66,7 @@ class ScoreExporter:
         analysis: AnalysisResult,
         output_path: Path,
     ) -> Path:
+        """Write the Jianpu notation score to a text file."""
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(format_jianpu(melody, analysis), encoding="utf-8")
         LOGGER.info("Wrote Jianpu score: %s", output_path)
@@ -121,14 +132,14 @@ def _display_offset_seconds(notes: tuple[NoteEvent, ...], beat_seconds: float, s
     if source_kind != "human_voice":
         return 0.0
 
-    phrases = _melody_phrases(notes, gap_seconds=max(2.5, beat_seconds * 4))
+    phrases = _melody_phrases(notes, gap_seconds=max(DISPLAY_OFFSET_GAP_SECONDS, beat_seconds * DISPLAY_OFFSET_PHRASE_THRESHOLD))
     if len(phrases) < 2 or phrases[0][0].start <= beat_seconds * 2:
         return 0.0
 
     scored = [(phrase, _phrase_score(phrase)) for phrase in phrases]
     best_phrase, best_score = max(scored, key=lambda item: item[1])
     early_best = max((score for phrase, score in scored if phrase[0].start < best_phrase[0].start), default=0.0)
-    if best_phrase[0].start >= trim_threshold and early_best < best_score * 0.8:
+    if best_phrase[0].start >= trim_threshold and early_best < best_score * DISPLAY_OFFSET_SCORE_RATIO:
         return best_phrase[0].start
     return 0.0
 
