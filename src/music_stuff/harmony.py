@@ -17,15 +17,25 @@ class KeyAnalyzer:
             return KeyEstimate(tonic="C", mode="major", confidence=0.0)
 
         major_scale = {0, 2, 4, 5, 7, 9, 11}
+        minor_scale = {0, 2, 3, 5, 7, 8, 10}
         pitch_classes = [note.pitch % 12 for note in melody.notes]
-        scores = []
+        best_score = -1
+        best_tonic = 0
+        best_mode = "major"
         for tonic in range(12):
-            score = sum(1 for pitch_class in pitch_classes if (pitch_class - tonic) % 12 in major_scale)
-            scores.append(score)
+            major_score = sum(1 for pc in pitch_classes if (pc - tonic) % 12 in major_scale)
+            minor_score = sum(1 for pc in pitch_classes if (pc - tonic) % 12 in minor_scale)
+            if major_score > best_score:
+                best_score = major_score
+                best_tonic = tonic
+                best_mode = "major"
+            if minor_score > best_score:
+                best_score = minor_score
+                best_tonic = tonic
+                best_mode = "minor"
 
-        tonic_index = max(range(12), key=scores.__getitem__)
-        confidence = scores[tonic_index] / len(pitch_classes)
-        return KeyEstimate(tonic=_NOTE_NAMES[tonic_index], mode="major", confidence=confidence)
+        confidence = best_score / len(pitch_classes)
+        return KeyEstimate(tonic=_NOTE_NAMES[best_tonic], mode=best_mode, confidence=confidence)
 
 
 @dataclass

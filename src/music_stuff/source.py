@@ -253,8 +253,60 @@ class DemucsSourceSeparator:
         if self.device == "cuda" and not torch.cuda.is_available():
             raise ValueError("CUDA was requested, but PyTorch cannot see an available GPU.")
         if self.device != "auto":
+            if self.device.startswith("cuda"):
+                self._log_gpu_info(torch, self.device)
             return self.device
-        return "cuda" if torch.cuda.is_available() else "cpu"
+        if not torch.cuda.is_available():
+            LOGGER.info("No CUDA GPU available, falling back to CPU.")
+            return "cpu"
+        return self._select_best_gpu(torch)
+
+    def _select_best_gpu(self, torch) -> str:
+        count = torch.cuda.device_count()
+        if count == 1:
+            device = "cuda:0"
+            self._log_gpu_info(torch, device)
+            return device
+
+        best_idx = 0
+        best_score = (-1, -1)
+        LOGGER.info("Detected %d CUDA GPUs, selecting the best one.", count)
+        for idx in range(count):
+            cap = torch.cuda.get_device_capability(idx)
+            mem = torch.cuda.get_device_properties(idx).total_mem
+            score = (cap[0] * 10 + cap[1], mem)
+            LOGGER.info(
+                "  GPU %d: %s | Compute Capability %d.%d | Memory %d MB",
+                idx,
+                torch.cuda.get_device_name(idx),
+                cap[0],
+                cap[1],
+                mem // (1024 * 1024),
+            )
+            if score > best_score:
+                best_score = score
+                best_idx = idx
+
+        device = f"cuda:{best_idx}"
+        LOGGER.info(
+            "Selected GPU %d (%s) as the best device.",
+            best_idx,
+            torch.cuda.get_device_name(best_idx),
+        )
+        return device
+
+    def _log_gpu_info(self, torch, device: str) -> None:
+        try:
+            idx = int(device.split(":")[-1]) if ":" in device else 0
+            name = torch.cuda.get_device_name(idx)
+            cap = torch.cuda.get_device_capability(idx)
+            mem = torch.cuda.get_device_properties(idx).total_mem
+            LOGGER.info(
+                "Using GPU %d: %s | Compute Capability %d.%d | Memory %d MB",
+                idx, name, cap[0], cap[1], mem // (1024 * 1024),
+            )
+        except Exception:
+            LOGGER.info("Using device: %s", device)
 
     def _load_wav_tensor(self, input_path: Path):
         import numpy as np

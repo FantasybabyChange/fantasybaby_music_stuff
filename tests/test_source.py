@@ -42,15 +42,34 @@ def test_demucs_subprocess_env_adds_imageio_ffmpeg_to_path(monkeypatch):
 
 
 def test_demucs_auto_device_prefers_cuda_when_available():
+    class FakeDeviceProps:
+        total_mem = 8 * 1024 * 1024 * 1024  # 8 GB
+
     class FakeCuda:
         @staticmethod
         def is_available():
             return True
 
+        @staticmethod
+        def device_count():
+            return 1
+
+        @staticmethod
+        def get_device_capability(_idx):
+            return (8, 6)
+
+        @staticmethod
+        def get_device_name(_idx):
+            return "FakeGPU"
+
+        @staticmethod
+        def get_device_properties(_idx):
+            return FakeDeviceProps()
+
     class FakeTorch:
         cuda = FakeCuda()
 
-    assert DemucsSourceSeparator()._resolve_torch_device(FakeTorch) == "cuda"
+    assert DemucsSourceSeparator()._resolve_torch_device(FakeTorch) == "cuda:0"
     assert DemucsSourceSeparator(device="cpu")._resolve_torch_device(FakeTorch) == "cpu"
 
 

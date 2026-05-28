@@ -73,7 +73,7 @@ def format_jianpu(melody: Melody, analysis: AnalysisResult) -> str:
     display_offset = _display_offset_seconds(melody.notes, beat_seconds, melody.source_kind)
     display_notes = _shift_notes(melody.notes, display_offset)
     events = _melody_events_with_rests(display_notes, beat_seconds)
-    measures = _render_measures(events, key_tonic, measure_beats)
+    measures = _render_measures(events, key_tonic, measure_beats, key_mode=key_mode)
 
     lines = [
         "标准简谱（主旋律）",
@@ -208,6 +208,7 @@ def _render_measures(
     key_tonic: str,
     measure_beats: Fraction,
     measures_per_line: int = 2,
+    key_mode: str = "major",
 ) -> list[str]:
     if not events:
         return ["| (no melody detected) ||"]
@@ -224,7 +225,7 @@ def _render_measures(
 
             room = measure_beats - position
             segment = min(remaining, room)
-            base = _event_base_token(event.pitch, key_tonic, continuation)
+            base = _event_base_token(event.pitch, key_tonic, continuation, key_mode)
             measures[-1].extend(_duration_tokens(base, segment))
             position += segment
             remaining -= segment
@@ -247,12 +248,12 @@ def _render_measures(
     return lines
 
 
-def _event_base_token(pitch: int, key_tonic: str, continuation: bool) -> str:
+def _event_base_token(pitch: int, key_tonic: str, continuation: bool, key_mode: str = "major") -> str:
     if pitch < 0:
         return "0" if not continuation else "-"
     if continuation:
         return "-"
-    return _pitch_to_jianpu(pitch, key_tonic)
+    return _pitch_to_jianpu(pitch, key_tonic, key_mode)
 
 
 def _duration_tokens(base: str, duration: Fraction) -> list[str]:
@@ -282,16 +283,17 @@ def _mark_duration(base: str, duration: Fraction) -> str:
     return base
 
 
-def _pitch_to_jianpu(pitch: int, key_tonic: str) -> str:
+def _pitch_to_jianpu(pitch: int, key_tonic: str, key_mode: str = "major") -> str:
     tonic_pitch_class = _TONIC_TO_PC.get(key_tonic, 0)
     relative_pc = (pitch % 12 - tonic_pitch_class) % 12
     octave = (pitch - (60 + tonic_pitch_class)) // 12
 
-    degree = _MAJOR_DEGREES.get(relative_pc)
-    if degree is None and (relative_pc - 1) % 12 in _MAJOR_DEGREES:
-        degree = "#" + _MAJOR_DEGREES[(relative_pc - 1) % 12]
-    if degree is None and (relative_pc + 1) % 12 in _MAJOR_DEGREES:
-        degree = "b" + _MAJOR_DEGREES[(relative_pc + 1) % 12]
+    degrees = _MINOR_DEGREES if key_mode == "minor" else _MAJOR_DEGREES
+    degree = degrees.get(relative_pc)
+    if degree is None and (relative_pc - 1) % 12 in degrees:
+        degree = "#" + degrees[(relative_pc - 1) % 12]
+    if degree is None and (relative_pc + 1) % 12 in degrees:
+        degree = "b" + degrees[(relative_pc + 1) % 12]
     if degree is None:
         degree = "?"
 
@@ -322,3 +324,4 @@ _TONIC_TO_PC = {
     "B": 11,
 }
 _MAJOR_DEGREES = {0: "1", 2: "2", 4: "3", 5: "4", 7: "5", 9: "6", 11: "7"}
+_MINOR_DEGREES = {0: "1", 2: "2", 3: "3", 5: "4", 7: "5", 8: "6", 10: "b7"}
