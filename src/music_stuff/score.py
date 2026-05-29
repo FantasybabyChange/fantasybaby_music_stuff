@@ -86,8 +86,10 @@ def format_jianpu(melody: Melody, analysis: AnalysisResult) -> str:
     events = _melody_events_with_rests(display_notes, beat_seconds)
     measures = _render_measures(events, key_tonic, measure_beats, key_mode=key_mode)
 
+    song_name = Path(melody.source).stem if melody.source else "unknown"
     lines = [
         "标准简谱（主旋律）",
+        f"歌曲: {song_name}",
         f"Source: {melody.source}",
         f"Main melody source: {melody.source_label}",
         f"Key: 1={key_tonic} ({key_mode})",

@@ -203,5 +203,5 @@ def test_list_run_summaries_reads_previous_outputs(tmp_path):
 
 
 def test_safe_filename_preserves_supported_suffix():
-    assert _safe_filename("我的 旋律.mp3") == "audio.mp3"
+    assert _safe_filename("我的 旋律.mp3") == "我的_旋律.mp3"
     assert _safe_filename("../demo tune.flac") == "demo_tune.flac"

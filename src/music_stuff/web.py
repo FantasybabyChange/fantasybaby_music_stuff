@@ -36,6 +36,7 @@ from music_stuff.source import (
 
 SUPPORTED_UPLOAD_SUFFIXES = {".wav", ".mp3", ".flac"}
 PLAYER_ARTIFACT_NAME = "melody.player.json"
+METADATA_ARTIFACT_NAME = "run.metadata.json"
 DOWNLOADABLE_ARTIFACTS = {"melody.jianpu.txt", "analysis.json", PLAYER_ARTIFACT_NAME}
 LOGGER = logging.getLogger(__name__)
 ASSETS_DIR = Path(__file__).with_name("assets")
@@ -172,6 +173,10 @@ def _build_handler(output_dir: Path) -> type[BaseHTTPRequestHandler]:
                 run_dir.mkdir(parents=True, exist_ok=True)
                 input_path = run_dir / upload.safe_name
                 input_path.write_bytes(upload.content)
+                (run_dir / METADATA_ARTIFACT_NAME).write_text(
+                    json.dumps({"originalName": upload.original_name}, ensure_ascii=False),
+                    encoding="utf-8",
+                )
                 LOGGER.info(
                     "Upload received: run_id=%s file=%s bytes=%s saved_as=%s compute_mode=%s",
                     run_id,
@@ -444,6 +449,16 @@ def _read_player_payload(player_path: Path) -> dict[str, object] | None:
 
 
 def _run_label(run_dir: Path, payload: dict[str, object] | None) -> str:
+    metadata_path = run_dir / METADATA_ARTIFACT_NAME
+    if metadata_path.exists():
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8-sig"))
+            original = metadata.get("originalName")
+            if isinstance(original, str) and original:
+                return original
+        except (OSError, json.JSONDecodeError):
+            pass
+
     for child in sorted(run_dir.iterdir(), key=lambda item: item.stat().st_mtime):
         if child.is_file() and child.suffix.lower() in SUPPORTED_UPLOAD_SUFFIXES:
             return child.name
@@ -649,9 +664,9 @@ def _safe_filename(file_name: str) -> str:
     name = Path(file_name).name
     stem = Path(name).stem
     suffix = Path(name).suffix.lower()
-    safe_stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", stem).strip("._")
+    safe_stem = re.sub(r"[^A-Za-z0-9_.\-一-鿿]+", "_", stem).strip("._")
     if not safe_stem:
-        safe_stem = "audio"
+        safe_stem = uuid.uuid4().hex[:8]
     return f"{safe_stem}{suffix}"
 
 
