@@ -56,6 +56,37 @@ def _frames_to_notes(
     return notes
 
 
+def _smooth_melody_notes(
+    notes: list[NoteEvent],
+    *,
+    merge_gap: float = 0.15,
+    merge_pitch_distance: int = 1,
+) -> list[NoteEvent]:
+    """Merge nearby notes with similar pitch to reduce vibrato artifacts."""
+    if not notes:
+        return notes
+    sorted_notes = sorted(notes, key=lambda n: (n.start, n.pitch))
+    merged: list[NoteEvent] = [sorted_notes[0]]
+    for note in sorted_notes[1:]:
+        prev = merged[-1]
+        gap = note.start - prev.end
+        pitch_diff = abs(note.pitch - prev.pitch)
+        if gap <= merge_gap and pitch_diff <= merge_pitch_distance:
+            # Extend previous note, keeping the pitch of the longer one
+            prev_duration = prev.end - prev.start
+            note_duration = note.end - note.start
+            best_pitch = note.pitch if note_duration > prev_duration else prev.pitch
+            merged[-1] = NoteEvent(
+                pitch=best_pitch,
+                start=prev.start,
+                end=max(prev.end, note.end),
+                velocity=max(prev.velocity, note.velocity),
+            )
+        else:
+            merged.append(note)
+    return merged
+
+
 def _amplitude_to_velocity(value: Any) -> int:
     try:
         numeric = float(value)
@@ -80,7 +111,7 @@ class BasicPitchMelodyTranscriber:
     model_name: str = "basic-pitch"
     min_midi_pitch: int = 48
     max_midi_pitch: int = 88
-    min_note_duration: float = 0.08
+    min_note_duration: float = 0.15
     melody_frame_seconds: float = 0.10
     preferred_midi_pitch: int = 76
     continuity_weight: float = 0.4
@@ -92,6 +123,7 @@ class BasicPitchMelodyTranscriber:
         _model_output, _midi_data, note_events = predict(str(audio.path))
         candidates = self._note_events_to_notes(note_events)
         notes = self._select_melody_line(candidates)
+        notes = _smooth_melody_notes(notes)
         LOGGER.info("Basic Pitch melody extraction complete: notes=%s", len(notes))
         return Melody(notes=tuple(notes), source=str(audio.path))
 
@@ -295,6 +327,7 @@ class MixedAudioMelodyTranscriber:
         )
         frames = self._select_pitch_track(pitches, magnitudes, audio.sample_rate, librosa, np)
         notes = self._frames_to_notes(frames)
+        notes = _smooth_melody_notes(notes)
         LOGGER.info(
             "Mixed-audio melody extraction complete: frames=%s voiced_frames=%s notes=%s",
             len(frames),
@@ -406,6 +439,7 @@ class SimplePitchMelodyTranscriber:
         )
         frames = self._frame_pitches(audio.samples, audio.sample_rate)
         notes = self._frames_to_notes(frames)
+        notes = _smooth_melody_notes(notes)
         voiced_frames = sum(1 for _start, _end, pitch in frames if pitch is not None)
         LOGGER.info(
             "Melody extraction complete: frames=%s voiced_frames=%s notes=%s",
